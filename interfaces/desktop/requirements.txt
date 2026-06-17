@@ -1,0 +1,9 @@
+pynput
+pillow
+pyautogui
+pyttsx3
+requests
+openai
+google-generativeai
+SpeechRecognition
+pyaudio

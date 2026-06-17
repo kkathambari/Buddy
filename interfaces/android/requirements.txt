@@ -1,0 +1,5 @@
+kivy
+requests
+plyer
+openai
+google-generativeai
