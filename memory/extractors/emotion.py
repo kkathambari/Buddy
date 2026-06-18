@@ -1,5 +1,6 @@
-from shared.storage import safe_load, safe_save
 from datetime import datetime
+from typing import Any, Dict
+from shared.storage import safe_load, safe_save
 
 FILE = "data/emotion_history.json"
 
@@ -9,7 +10,7 @@ def load_history():
 def save_history(data):
     safe_save(FILE, data[-50:])
 
-def log_emotion(emotion):
+def log_emotion(emotion: str):
     history = load_history()
     history.append({
         "emotion": emotion,
@@ -17,7 +18,7 @@ def log_emotion(emotion):
     })
     save_history(history)
 
-def detect_pattern():
+def detect_pattern() -> Any:
     history = load_history()
 
     if len(history) < 5:
@@ -35,3 +36,15 @@ def detect_pattern():
         return "consistently_happy"
 
     return None
+
+def extract_emotion(chat_input: str) -> Dict[str, Any]:
+    """Logs the emotion parsed from user input and evaluates historical patterns."""
+    from brain.emotion import detect_emotion
+    emotion = detect_emotion(chat_input)
+    log_emotion(emotion)
+    
+    pattern = detect_pattern()
+    return {
+        "emotion": emotion,
+        "pattern": pattern
+    }

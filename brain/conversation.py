@@ -4,7 +4,7 @@ import time
 import threading
 import sys
 import queue
-from memory.conversations import get_context, add_memory
+from memory.working_memory import get_recent_context
 from core.mood import get_mood
 from core.bonding import update_bond, load_bond, get_attachment_style
 from brain.emotion import detect_emotion
@@ -12,7 +12,7 @@ from core.care import get_care_message
 from core.evolution import load_evolution
 from core.config import get_config
 from brain.tone import analyze_tone
-from memory.timeline import log_emotion, detect_pattern
+from memory.extractors.emotion import log_emotion, detect_pattern
 from core.adaptation import adapt_to_user
 from memory.semantic import retrieve_memory, store_memory
 from memory.projects import analyze_productivity
@@ -54,7 +54,7 @@ def emotional_adjust(response, tone):
     return response
 
 def build_prompt(user_input, stats, energy):
-    context = get_context()
+    context = get_recent_context()
     mood = get_mood(energy)
 
     tone = analyze_tone(user_input)
@@ -201,21 +201,19 @@ def process_chat(user_input, stats, energy):
     tone = analyze_tone(user_input)
     log_emotion(tone["emotion"])
 
-    threading.Thread(target=store_memory, args=(f"User said: {user_input}",), daemon=True).start()
-
-    # Trigger background profile extraction
-    try:
-        from memory.user_profile import extract_profile_async
-        extract_profile_async(user_input)
-    except Exception:
-        pass
-
     raw_response = global_decision_engine.execute(intent, stats, energy)
 
     cleaned_response = parse_and_execute_actions(raw_response)
 
     final = apply_personality(cleaned_response, stats)
     final = emotional_adjust(final, tone)
+
+    # Asynchronously evaluate and commit facts to Memory Manager
+    try:
+        from memory.manager import evaluate_and_commit
+        evaluate_and_commit(user_input, final, tone["emotion"])
+    except Exception:
+        pass
 
     if tone["emotion"] == "sad":
         time.sleep(2.0)

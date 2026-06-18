@@ -1,7 +1,5 @@
 from typing import Any, Dict
 from ai.gateway.broker import AIGateway
-from memory.semantic import retrieve_memory
-from memory.conversations import get_context
 from core.logging import setup_logger
 
 logger = setup_logger("reasoner")
@@ -15,7 +13,8 @@ class CognitiveReasoner:
         logger.info(f"Reasoner evaluating context for: '{text[:40]}...'")
 
         # Load short-term history context
-        chat_context = get_context()
+        from memory.working_memory import get_recent_context
+        chat_context = get_recent_context()
 
         # Load structured user profile
         profile_str = "No user profile details loaded yet."
@@ -28,7 +27,8 @@ class CognitiveReasoner:
             pass
 
         # Retrieve relevant semantic memories
-        semantic_memories = retrieve_memory(text)
+        from memory.retriever import retrieve_relevant_facts
+        semantic_memories = retrieve_relevant_facts(text)
         memory_str = "\n".join(f"- {m}" for m in semantic_memories) if semantic_memories else "No directly relevant past memories."
 
         # Compile statistics
