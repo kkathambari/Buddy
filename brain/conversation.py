@@ -3,6 +3,7 @@ import random
 import time
 import threading
 import sys
+import queue
 from memory.conversations import get_context, add_memory
 from core.mood import get_mood
 from core.bonding import update_bond, load_bond, get_attachment_style
@@ -112,7 +113,66 @@ Daemon:
 """
     return prompt
 
+proactive_queue = queue.Queue()
+last_category_comment_time = 0.0
+
+def handle_user_struggling(event):
+    payload = event.payload
+    ratio = payload.get("delete_ratio", 0.0)
+    
+    prompt = f"""
+You are Daemon, a calm, observant, and slightly teasing ghost developer coach.
+The user is currently coding but seems to be struggling. They are typing and deleting code repeatedly in their IDE (delete ratio: {ratio:.0%}).
+Do NOT be dry or diagnostic (do not mention ratios or error logs). Speak naturally, offering a hand or another pair of eyes in Daemon's persona.
+Keep your response short (1-2 sentences).
+Daemon:
+"""
+    try:
+        response = ask_llm(prompt)
+        proactive_queue.put(response)
+    except Exception:
+        pass
+
+def handle_category_changed(event):
+    global last_category_comment_time
+    payload = event.payload
+    new_cat = payload.get("new_category", "")
+    title = payload.get("title", "")
+    
+    now = time.time()
+    if (now - last_category_comment_time) < 600.0: # 10 mins category switch cooldown
+        return
+        
+    last_category_comment_time = now
+    
+    prompt = f"""
+You are Daemon, a ghost developer companion.
+The user has just switched their active window to: {new_cat} (Window title: "{title}").
+Respond naturally in character (calm, teasing, observant), acknowledging this activity switch (e.g. noticing they are back to coding, or browsing).
+Keep your response short (1-2 sentences).
+Daemon:
+"""
+    try:
+        response = ask_llm(prompt)
+        proactive_queue.put(response)
+    except Exception:
+        pass
+
+# Subscribe callbacks to global_bus
+try:
+    from events.bus import global_bus
+    global_bus.subscribe("user_struggling", handle_user_struggling)
+    global_bus.subscribe("active_category_changed", handle_category_changed)
+except Exception:
+    pass
+
 def ghost_presence():
+    try:
+        if not proactive_queue.empty():
+            return proactive_queue.get_nowait()
+    except Exception:
+        pass
+
     observation = get_contextual_observation()
     if observation:
         return observation
@@ -139,6 +199,13 @@ def process_chat(user_input, stats, energy):
     log_emotion(intent["tone"]["emotion"])
 
     threading.Thread(target=store_memory, args=(f"User said: {user_input}",), daemon=True).start()
+
+    # Trigger background profile extraction
+    try:
+        from memory.user_profile import extract_profile_async
+        extract_profile_async(user_input)
+    except Exception:
+        pass
 
     raw_response = global_router.route_and_execute(intent, stats, energy)
 

@@ -1,6 +1,7 @@
 from datetime import datetime
 import time
 import threading
+import collections
 
 last_interaction = datetime.now()
 session_data = {
@@ -8,6 +9,10 @@ session_data = {
     "start_time": datetime.now(),
     "has_warned": False
 }
+
+key_history = collections.deque()
+last_struggle_time = 0.0
+STRUGGLE_COOLDOWN_SEC = 300.0 # 5 minutes cooldown
 
 def register_interaction():
     global last_interaction
@@ -47,6 +52,18 @@ def monitor_screen_context():
             end_time = datetime.now()
             log_session(session_data["category"], session_data["start_time"], end_time)
             
+            # Publish category changed event
+            try:
+                from events.bus import global_bus, Event
+                event = Event("active_category_changed", {
+                    "old_category": session_data["category"],
+                    "new_category": cat,
+                    "title": title
+                })
+                global_bus.publish(event)
+            except Exception:
+                pass
+            
             session_data["category"] = cat
             session_data["start_time"] = end_time
             session_data["has_warned"] = False
@@ -70,8 +87,47 @@ def get_contextual_observation():
         
     return None
 
+def check_struggle(key):
+    global key_history, last_struggle_time
+    now = time.time()
+    
+    is_delete = False
+    try:
+        from pynput.keyboard import Key
+        if key == Key.backspace or key == Key.delete:
+            is_delete = True
+    except Exception:
+        pass
+        
+    if not is_delete:
+        if hasattr(key, 'name') and key.name in ['backspace', 'delete']:
+            is_delete = True
+            
+    key_history.append((now, is_delete))
+    
+    cutoff = now - 45.0
+    while key_history and key_history[0][0] < cutoff:
+        key_history.popleft()
+        
+    if len(key_history) >= 20:
+        deletes = sum(1 for _, is_del in key_history if is_del)
+        delete_ratio = deletes / len(key_history)
+        
+        if delete_ratio > 0.40 and (now - last_struggle_time) > STRUGGLE_COOLDOWN_SEC:
+            last_struggle_time = now
+            try:
+                from events.bus import global_bus, Event
+                event = Event("user_struggling", {
+                    "delete_ratio": delete_ratio,
+                    "total_keys": len(key_history)
+                })
+                global_bus.publish(event)
+            except Exception:
+                pass
+
 def on_press(key):
     register_interaction()
+    check_struggle(key)
 
 def start_listener():
     try:

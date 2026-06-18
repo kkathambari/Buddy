@@ -17,6 +17,16 @@ class CognitiveReasoner:
         # Load short-term history context
         chat_context = get_context()
 
+        # Load structured user profile
+        profile_str = "No user profile details loaded yet."
+        try:
+            from memory.user_profile import load_profile
+            import json
+            profile = load_profile()
+            profile_str = json.dumps(profile, indent=2)
+        except Exception:
+            pass
+
         # Retrieve relevant semantic memories
         semantic_memories = retrieve_memory(text)
         memory_str = "\n".join(f"- {m}" for m in semantic_memories) if semantic_memories else "No directly relevant past memories."
@@ -30,6 +40,9 @@ You are Daemon, a male ghost companion.
 Your current status: Energy: {energy}/100.
 Your stats:
 {stats_str}
+
+User Profile details:
+{profile_str}
 
 User's current state:
 Tone: {intent['tone']['emotion']} (intensity: {intent['tone']['intensity']})
