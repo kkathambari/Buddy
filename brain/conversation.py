@@ -18,87 +18,15 @@ from memory.projects import analyze_productivity
 from core.activity import get_contextual_observation
 from shared.typing import typing_effect
 from core.automation import parse_and_execute_actions
-
-def choose_model(user_input):
-    cfg = get_config()
-    text = user_input.lower()
-    if "code" in text or "bug" in text or "error" in text:
-        return "deepseek-coder"
-    elif "explain" in text or "why" in text:
-        return "mistral"
-    else:
-        return cfg.get("model", "llama3")
+from ai.gateway.broker import AIGateway
 
 def ask_llm(prompt):
-    cfg = get_config()
-    provider = cfg.get("ai_provider", "ollama")
-    
-    if provider == "chatgpt":
-        try:
-            import openai
-            api_key = cfg.get("chatgpt_api_key", "")
-            if not api_key: return "My ChatGPT API key is missing!"
-            client = openai.OpenAI(api_key=api_key)
-            response = client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=150
-            )
-            return response.choices[0].message.content.strip()
-        except Exception as e:
-            return f"ChatGPT connection issue: {e}"
-            
-    elif provider == "claude":
-        try:
-            import anthropic
-            api_key = cfg.get("claude_api_key", "")
-            if not api_key: return "My Claude API key is missing!"
-            client = anthropic.Anthropic(api_key=api_key)
-            response = client.messages.create(
-                model="claude-3-haiku-20240307",
-                max_tokens=150,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            return response.content[0].text.strip()
-        except Exception as e:
-            return f"Claude connection issue: {e}"
-            
-    elif provider == "gemini":
-        try:
-            import google.generativeai as genai
-            api_key = cfg.get("gemini_api_key", "")
-            if not api_key: return "My Gemini API key is missing!"
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-pro')
-            response = model.generate_content(prompt)
-            return response.text.strip()
-        except Exception as e:
-            return f"Gemini connection issue: {e}"
-            
-    else: # default ollama
-        model = choose_model(prompt)
-        try:
-            # Under Windows, prevent window popups if necessary
-            startupinfo = None
-            if sys.platform == "win32":
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            result = subprocess.run(
-                ["ollama", "run", model],
-                input=prompt,
-                text=True,
-                capture_output=True,
-                timeout=60,
-                encoding="utf-8",
-                startupinfo=startupinfo
-            )
-            if result.returncode != 0:
-                return "Hmm… something feels off."
-            return result.stdout.strip()
-        except subprocess.TimeoutExpired:
-            return "I’m here… just a little slow right now. (Timeout)"
-        except Exception:
-            return "I’m here… just a little slow right now."
+    try:
+        return AIGateway.generate_response(prompt)
+    except Exception as e:
+        logger_err = f"AI Gateway call failed: {e}"
+        print(logger_err)
+        return "I’m here… just a little slow right now."
 
 def apply_personality(response, stats):
     if random.random() < 0.25:
@@ -201,23 +129,27 @@ def ghost_presence():
 
     return None
 
+from brain.intent import IntentParser
+from brain.router import global_router
+import capabilities.education
+import capabilities.career
+
 def process_chat(user_input, stats, energy):
-    tone = analyze_tone(user_input)
-    log_emotion(tone["emotion"])
+    intent = IntentParser.parse(user_input)
+    log_emotion(intent["tone"]["emotion"])
 
     threading.Thread(target=store_memory, args=(f"User said: {user_input}",), daemon=True).start()
 
-    prompt = build_prompt(user_input, stats, energy)
-    raw_response = ask_llm(prompt)
+    raw_response = global_router.route_and_execute(intent, stats, energy)
 
     cleaned_response = parse_and_execute_actions(raw_response)
 
     final = apply_personality(cleaned_response, stats)
-    final = emotional_adjust(final, tone)
+    final = emotional_adjust(final, intent["tone"])
 
-    if tone["emotion"] == "sad":
+    if intent["tone"]["emotion"] == "sad":
         time.sleep(2.0)
-    elif tone["intensity"] == "high":
+    elif intent["tone"]["intensity"] == "high":
         time.sleep(0.5)
     else:
         time.sleep(1.2)

@@ -15,7 +15,7 @@ from kivy.uix.gridlayout import GridLayout
 
 from shared.storage import safe_load
 from core.config import get_config, set_config
-from brain.conversation import process_chat
+from sdk.client import ForgeSDK
 
 from kivy.uix.spinner import Spinner
 
@@ -113,10 +113,10 @@ class SettingsPopup(Popup):
         self.dismiss()
 
     def restore_cloud(self, instance):
-        from core.cloud import load_from_cloud_sync
         pet_id = self.id_input.text.strip()
         if pet_id:
-            cloud_soul = load_from_cloud_sync("", pet_id)
+            app = App.get_running_app()
+            cloud_soul = app.sdk.get_companion_state()
             if cloud_soul:
                 from shared.storage import safe_save
                 safe_save("data/soul.json", cloud_soul)
@@ -159,6 +159,14 @@ class AndroidPetApp(App):
         
         self.config_data = get_config()
         self.soul = safe_load("data/soul.json", {"energy": 100})
+        
+        self.sdk = ForgeSDK()
+        email = self.config_data.get("user_email")
+        password = self.config_data.get("user_password")
+        if email and password:
+            self.sdk.login(email, password)
+        if self.config_data.get("pet_cloud_id"):
+            self.sdk.soul_seed = self.config_data["pet_cloud_id"]
         
         self.layout = BoxLayout(orientation='vertical')
         
@@ -274,10 +282,7 @@ class AndroidPetApp(App):
         def background_chat():
             from core.bonding import update_bond
             new_bond = update_bond(True)
-            stats = self.soul.get("stats", {})
-            energy = self.soul.get("energy", 100)
-            
-            response = process_chat(text, stats, energy)
+            response = self.sdk.send_chat_message(text)
             Clock.schedule_once(lambda dt: self.receive_message(response, new_bond))
             
         threading.Thread(target=background_chat, daemon=True).start()
@@ -290,10 +295,8 @@ class AndroidPetApp(App):
             self.state = "idle"
             
         # Every time the pet receives a message, sync its latest soul data to the cloud
-        from shared.storage import safe_load
-        from core.cloud import sync_to_cloud
         current_soul = safe_load("data/soul.json", self.soul)
-        sync_to_cloud(current_soul)
+        self.sdk.sync_companion_state(current_soul)
             
         self.append_chat(f"Daemon: {response}", "d0d0ff")
         

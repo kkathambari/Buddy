@@ -6,11 +6,21 @@ import random
 import time
 from threading import Thread
 from core.config import set_config, get_config
+from sdk.client import ForgeSDK
 
 class DesktopPet:
     def __init__(self, config=None):
         if config is None:
             config = get_config()
+            
+        self.sdk = ForgeSDK()
+        # Pre-authenticate if config details exist
+        email = config.get("user_email")
+        password = config.get("user_password")
+        if email and password:
+            self.sdk.login(email, password)
+        if config.get("pet_cloud_id"):
+            self.sdk.soul_seed = config["pet_cloud_id"]
             
         self.root = tk.Tk()
         self.root.title("DevBuddy")
@@ -247,12 +257,12 @@ class DesktopPet:
         time.sleep(random.uniform(0.5, 1.2))
         self.root.after(0, lambda: setattr(self, 'state', 'busy'))
 
-        response = self.get_response(user_input)
+        response = self.sdk.send_chat_message(user_input)
         new_bond = update_bond(True)
 
         current_soul = safe_load("data/soul.json", {})
         if current_soul:
-            sync_to_cloud(current_soul)
+            self.sdk.sync_companion_state(current_soul)
 
         time.sleep(random.uniform(0.8, 1.5))
         
@@ -269,11 +279,7 @@ class DesktopPet:
         self.root.after(0, lambda: self.on_reply_received(response))
 
     def get_response(self, user_input):
-        from shared.storage import safe_load
-        from brain.conversation import process_chat
-        soul = safe_load("data/soul.json", {"energy": 100})
-        stats = soul.get("stats", {})
-        return process_chat(user_input, stats, soul.get("energy", 100))
+        return self.sdk.send_chat_message(user_input)
 
     def on_reply_received(self, response):
         if not hasattr(self, 'chat_history'): self.chat_history = []
@@ -336,9 +342,7 @@ class DesktopPet:
             
         restore = sd.askstring("Cloud Restore", "Type 'yes' to download Cloud Save right now, or leave blank:")
         if restore and restore.lower().strip() == 'yes':
-            from core.cloud import load_from_cloud_sync
-            from shared.storage import safe_save
-            cloud_soul = load_from_cloud_sync(self.config.get("firebase_url"), self.config.get("pet_cloud_id"))
+            cloud_soul = self.sdk.get_companion_state()
             if cloud_soul:
                 safe_save("data/soul.json", cloud_soul)
                 self.speak("Cloud memory restored! I remember everything.")
