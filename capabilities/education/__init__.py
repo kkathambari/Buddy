@@ -1,5 +1,5 @@
-from brain.router import global_router
+from brain.decision_engine import global_decision_engine
 from capabilities.education.handler import handle_education
 
 # Self-registers the capability handler at startup
-global_router.register_capability("education", handle_education)
+global_decision_engine.register_capability("education", handle_education)

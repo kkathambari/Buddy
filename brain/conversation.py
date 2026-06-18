@@ -189,14 +189,17 @@ def ghost_presence():
 
     return None
 
-from brain.intent import IntentParser
-from brain.router import global_router
+from brain.intent import detect_intent
+from brain.decision_engine import global_decision_engine
 import capabilities.education
 import capabilities.career
 
 def process_chat(user_input, stats, energy):
-    intent = IntentParser.parse(user_input)
-    log_emotion(intent["tone"]["emotion"])
+    from brain.tone import analyze_tone
+    
+    intent = detect_intent(user_input)
+    tone = analyze_tone(user_input)
+    log_emotion(tone["emotion"])
 
     threading.Thread(target=store_memory, args=(f"User said: {user_input}",), daemon=True).start()
 
@@ -207,16 +210,16 @@ def process_chat(user_input, stats, energy):
     except Exception:
         pass
 
-    raw_response = global_router.route_and_execute(intent, stats, energy)
+    raw_response = global_decision_engine.execute(intent, stats, energy)
 
     cleaned_response = parse_and_execute_actions(raw_response)
 
     final = apply_personality(cleaned_response, stats)
-    final = emotional_adjust(final, intent["tone"])
+    final = emotional_adjust(final, tone)
 
-    if intent["tone"]["emotion"] == "sad":
+    if tone["emotion"] == "sad":
         time.sleep(2.0)
-    elif intent["tone"]["intensity"] == "high":
+    elif tone.get("intensity", "low") == "high":
         time.sleep(0.5)
     else:
         time.sleep(1.2)

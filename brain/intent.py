@@ -1,35 +1,40 @@
 from typing import Any, Dict
-from brain.tone import analyze_tone
-from brain.emotion import detect_emotion
+from brain.intent_types import Intent, IntentCategory
+from brain.intent_rules import match_intent_rules
+
+def detect_intent(message: str) -> Intent:
+    """
+    Detects the user's intent with zero LLM latency.
+    Parses input against rule matrices to categorize dialogue context.
+    """
+    return match_intent_rules(message)
 
 class IntentParser:
-    """Parses user input to classify dialog intents (chat, coding aid, study sessions, career prep)."""
-    
+    """
+    Backward-compatibility wrapper.
+    Converts the new structured Intent object into the old dictionary payload.
+    """
     @staticmethod
     def parse(text: str) -> Dict[str, Any]:
-        text_lower = text.lower()
+        intent_obj = detect_intent(text)
         
-        # Default intent
-        intent = {
-            "category": "general_chat",
-            "capability": None,
+        # Resolve capabilities
+        capability = None
+        category = "general_chat"
+        if intent_obj.category == IntentCategory.LEARNING:
+            capability = "education"
+            category = "capability_execution"
+        elif intent_obj.category == IntentCategory.CAREER:
+            capability = "career"
+            category = "capability_execution"
+            
+        from brain.tone import analyze_tone
+        from brain.emotion import detect_emotion
+        
+        return {
+            "category": category,
+            "capability": capability,
             "tone": analyze_tone(text),
             "emotion": detect_emotion(text),
             "raw_text": text
         }
-        
-        # Rule-based capability routing
-        if any(w in text_lower for w in ["study", "learn", "exam", "quiz", "revision", "viva", "concept"]):
-            intent["category"] = "capability_execution"
-            intent["capability"] = "education"
-        elif any(w in text_lower for w in ["job", "career", "interview", "resume", "internship", "ats"]):
-            intent["category"] = "capability_execution"
-            intent["capability"] = "career"
-        elif any(w in text_lower for w in ["code", "bug", "compile", "script", "refactor", "exception"]):
-            intent["category"] = "capability_execution"
-            intent["capability"] = "coding"
-        elif any(w in text_lower for w in ["todo", "schedule", "plan", "calendar"]):
-            intent["category"] = "capability_execution"
-            intent["capability"] = "planner"
-            
-        return intent
