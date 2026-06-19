@@ -84,5 +84,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='DevBuddy',
+    name='DevBuddyApp',
 )

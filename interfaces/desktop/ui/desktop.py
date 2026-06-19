@@ -2,11 +2,20 @@ import tkinter as tk
 import tkinter.simpledialog as sd
 from PIL import Image, ImageTk
 import os
+import sys
 import random
 import time
 from threading import Thread
 from core.config import set_config, get_config
 from sdk.client import ForgeSDK
+
+# Resolve the asset/resource root directory
+if getattr(sys, 'frozen', False):
+    # In PyInstaller, data files like 'assets' are in sys._MEIPASS
+    resource_root = sys._MEIPASS
+else:
+    # In development, it's the desktop interface root directory
+    resource_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 class DesktopPet:
     def __init__(self, config=None):
@@ -361,11 +370,16 @@ class DesktopPet:
 
     def load_frames(self, folder):
         frames = []
-        if not os.path.exists(folder):
+        if os.path.isabs(folder):
+            actual_folder = folder
+        else:
+            actual_folder = os.path.join(resource_root, folder)
+
+        if not os.path.exists(actual_folder):
             return frames
-        for file in sorted(os.listdir(folder)):
+        for file in sorted(os.listdir(actual_folder)):
             if file.endswith(".png") or file.endswith(".gif"):
-                img = Image.open(os.path.join(folder, file))
+                img = Image.open(os.path.join(actual_folder, file))
                 frames.append(ImageTk.PhotoImage(img))
         return frames
 

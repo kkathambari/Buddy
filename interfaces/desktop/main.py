@@ -20,8 +20,24 @@ from core.decay import update_energy
 from core.mood import get_mood
 from shared.storage import safe_save
 
+def ensure_default_data():
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        mei_data = os.path.join(sys._MEIPASS, "data")
+        if os.path.exists(mei_data):
+            os.makedirs("data", exist_ok=True)
+            for file in os.listdir(mei_data):
+                src = os.path.join(mei_data, file)
+                dst = os.path.join("data", file)
+                if os.path.isfile(src) and not os.path.exists(dst):
+                    try:
+                        import shutil
+                        shutil.copy2(src, dst)
+                    except Exception as e:
+                        print(f"Failed to copy default data file {file}: {e}")
+
 def startup():
     print("Starting DevBuddy...")
+    ensure_default_data()
     time.sleep(1)
     soul = safe_load("data/soul.json", {"name": "Buddy", "energy": 100})
     
