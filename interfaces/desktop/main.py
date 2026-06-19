@@ -2,7 +2,12 @@ import sys
 import os
 
 # Resolve the root workspace directory
-root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if getattr(sys, 'frozen', False):
+    # In PyInstaller frozen state, modules are in sys._MEIPASS or executable directory
+    root_dir = sys._MEIPASS if hasattr(sys, '_MEIPASS') else os.path.dirname(os.path.abspath(__file__))
+else:
+    root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 if root_dir not in sys.path:
     sys.path.insert(0, root_dir)
 

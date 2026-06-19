@@ -1,16 +1,60 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
 
+# Dynamically resolve absolute paths
+spec_dir = os.path.dirname(os.path.abspath(SPEC)) if 'SPEC' in globals() else os.path.abspath('.')
+workspace_root = os.path.abspath(os.path.join(spec_dir, '../..'))
 
 a = Analysis(
     ['main.py'],
-    pathex=[],
+    pathex=[workspace_root, spec_dir],
     binaries=[],
     datas=[('assets', 'assets'), ('data', 'data')],
-    hiddenimports=[],
+    hiddenimports=['pynput.keyboard'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=[
+        'google',
+        'google.generativeai',
+        'google.genai',
+        'google.protobuf',
+        'googleapiclient',
+        'openai',
+        'anthropic',
+        'fastapi',
+        'pydantic',
+        'uvicorn',
+        'email_validator',
+        'dnspython',
+        'numpy',
+        'pandas',
+        'matplotlib',
+        'ipython',
+        'jedi',
+        'black',
+        'pylint',
+        'tensorflow',
+        'torch',
+        'keras',
+        'scipy',
+        'h5py',
+        'tensorboard',
+        'sympy',
+        'sklearn',
+        'scikit-learn',
+        'numba',
+        'llvmlite',
+        'docutils',
+        'sphinx',
+        'git',
+        'gitdb',
+        'kivy',
+        'jnius',
+        'pyjnius',
+        'plyer',
+        'android'
+    ],
     noarchive=False,
     optimize=0,
 )
