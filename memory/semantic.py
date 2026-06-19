@@ -69,7 +69,7 @@ def save_vector_db(db):
     with open(VECTOR_DB_PATH, "w") as f:
         json.dump(db, f, indent=4)
 
-def store_memory(text):
+def store_memory(text, importance=0.5, emotion="neutral", shared=False):
     if len(text.strip()) < 5:
         return
         
@@ -84,9 +84,18 @@ def store_memory(text):
             
     db.append({
         "text": text,
-        "vector": vector
+        "vector": vector,
+        "importance": importance,
+        "emotion": emotion,
+        "shared": shared
     })
     save_vector_db(db)
+
+def retrieve_shared_memories(top_k=2):
+    """Retrieves list of shared memories (e.g. mutual accomplishments)."""
+    db = load_vector_db()
+    shared_items = [item for item in db if item.get("shared", False)]
+    return [item["text"] for item in shared_items[:top_k]]
 
 def retrieve_memory(query, top_k=2):
     query_vector = get_embedding(query)

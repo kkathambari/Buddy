@@ -1,19 +1,22 @@
 from datetime import datetime
 from typing import Callable, Dict, List, Any
 import threading
+import uuid
 from core.logging import setup_logger
 
 logger = setup_logger("event_bus")
 
 class Event:
     """Represents a system event flowing through the event bus."""
-    def __init__(self, name: str, payload: Dict[str, Any] = None):
+    def __init__(self, name: str, sender: str, payload: Dict[str, Any] = None):
+        self.event_id = str(uuid.uuid4())
         self.name = name
+        self.sender = sender
         self.payload = payload or {}
-        self.timestamp = datetime.now()
+        self.timestamp = datetime.utcnow().isoformat()
 
     def __repr__(self):
-        return f"<Event name={self.name} timestamp={self.timestamp}>"
+        return f"<Event name={self.name} sender={self.sender} timestamp={self.timestamp}>"
 
 class EventBus:
     """

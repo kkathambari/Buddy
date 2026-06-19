@@ -1,5 +1,5 @@
 from typing import Any, Dict, Optional
-from memory.conversations import load_memory
+from memory.working_memory import load_working_memory
 from core.logging import setup_logger
 
 logger = setup_logger("reflection")
@@ -13,7 +13,7 @@ class SelfReflection:
         Analyzes the last few turns of conversation history.
         Determines user mood shifting and if errors/problems were resolved.
         """
-        history = load_memory()
+        history = load_working_memory()
         if not history:
             return {"status": "no_data", "success_score": 0.5}
 
@@ -52,3 +52,32 @@ class SelfReflection:
         if reflection.get("success_score", 0.5) < 0.3:
             return "You seem a bit frustrated... everything okay?"
         return None
+
+    @staticmethod
+    def evaluate_feedback(user_input: str) -> bool:
+        """
+        Evaluates user response sentiment to determine if Buddy's assistance was helpful.
+        Returns True for positive/confirmative feedback, False for negative/unhelpful feedback.
+        """
+        text = user_input.lower().strip()
+        positives = [
+            "yes", "yeah", "yep", "yup", "worked", "helps", "helpful", "fixed",
+            "thank", "thanks", "perfect", "indeed", "sure", "correct", "awesome"
+        ]
+        negatives = [
+            "no", "nope", "not", "didn't", "failed", "broken", "useless", "bad",
+            "unhelpful", "worse", "still error", "still broken", "stop"
+        ]
+        
+        # Look for explicit negatives first
+        for neg in negatives:
+            if neg in text:
+                return False
+                
+        # Look for positives
+        for pos in positives:
+            if pos in text:
+                return True
+                
+        # Default to neutral/positive if no strong negative is detected
+        return True

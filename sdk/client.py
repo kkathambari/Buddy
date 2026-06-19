@@ -77,8 +77,8 @@ class ForgeSDK:
             logger.error(f"Network error during companion link: {e}")
             # Local fallback registry save
             try:
-                from backend.repositories.firebase import FirebaseCompanionRepository
-                repo = FirebaseCompanionRepository()
+                from backend.repositories.factory import get_companion_repository
+                repo = get_companion_repository()
                 # Store user mapping
                 repo.save(f"user_mapping/{self.user_uid}", {"soul_seed": soul_seed})
                 self.soul_seed = soul_seed
@@ -103,8 +103,8 @@ class ForgeSDK:
             logger.error(f"SDK failed to sync stats over network: {e}")
             # Fallback direct cloud sync
             try:
-                from backend.repositories.firebase import FirebaseCompanionRepository
-                repo = FirebaseCompanionRepository()
+                from backend.repositories.factory import get_companion_repository
+                repo = get_companion_repository()
                 return repo.save(companion_id, soul_data)
             except Exception as fe:
                 logger.error(f"Fallback companion sync failed: {fe}")
@@ -126,8 +126,8 @@ class ForgeSDK:
         except Exception as e:
             logger.error(f"SDK failed to fetch companion state over network: {e}")
             try:
-                from backend.repositories.firebase import FirebaseCompanionRepository
-                repo = FirebaseCompanionRepository()
+                from backend.repositories.factory import get_companion_repository
+                repo = get_companion_repository()
                 return repo.get(companion_id)
             except Exception as fe:
                 logger.error(f"Fallback companion fetch failed: {fe}")
@@ -151,8 +151,8 @@ class ForgeSDK:
             logger.error(f"SDK failed to send chat message over network: {e}")
             try:
                 from brain.conversation import process_chat
-                from backend.repositories.firebase import FirebaseCompanionRepository
-                repo = FirebaseCompanionRepository()
+                from backend.repositories.factory import get_companion_repository
+                repo = get_companion_repository()
                 soul = repo.get(companion_id) or {"energy": 100}
                 stats = soul.get("stats", {})
                 energy = soul.get("energy", 100)

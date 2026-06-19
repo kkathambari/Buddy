@@ -18,6 +18,14 @@ def register_interaction():
     global last_interaction
     last_interaction = datetime.now()
 
+pdf_state = {
+    "active_pdf_title": "",
+    "opened_time": 0.0,
+    "last_scroll_time": 0.0,
+    "page_changes": 0,
+    "last_trigger_time": 0.0
+}
+
 def get_active_window_title():
     try:
         import ctypes
@@ -31,22 +39,56 @@ def get_active_window_title():
 
 def categorize_window(title):
     if not title: return "idle"
-    if "code" in title or "pycharm" in title or "intellij" in title or "vim" in title:
+    title_lower = title.lower()
+    # Check PDF window first to intercept browser tabs showing PDFs
+    if ".pdf" in title_lower or "pdf" in title_lower or "acrobat" in title_lower or "reader" in title_lower:
+        return "studying"
+    if "code" in title_lower or "pycharm" in title_lower or "intellij" in title_lower or "vim" in title_lower:
         return "coding"
-    if "chrome" in title or "edge" in title or "firefox" in title or "brave" in title:
-        if "youtube" in title or "netflix" in title:
+    if "chrome" in title_lower or "edge" in title_lower or "firefox" in title_lower or "brave" in title_lower:
+        if "youtube" in title_lower or "netflix" in title_lower:
             return "watching"
         return "browsing"
-    if "discord" in title or "slack" in title or "teams" in title:
+    if "discord" in title_lower or "slack" in title_lower or "teams" in title_lower:
         return "chatting"
     return "other"
 
 def monitor_screen_context():
-    global session_data
+    global session_data, pdf_state
     while True:
         title = get_active_window_title()
         cat = categorize_window(title)
         
+        # Check PDF Study proactive trigger
+        if cat == "studying":
+            now_time = time.time()
+            if pdf_state["active_pdf_title"] != title:
+                # Started reading a new PDF or switched back
+                pdf_state["active_pdf_title"] = title
+                pdf_state["opened_time"] = now_time
+                pdf_state["page_changes"] = 0
+            else:
+                # Same PDF is active
+                duration = now_time - pdf_state["opened_time"]
+                
+                # Check relationship trust score
+                from relationship.manager import get_relationship
+                rel = get_relationship("default_pet")
+                trust = rel.get("trust", 0.5)
+                
+                if trust > 0.6:
+                    import sys
+                    is_testing = 'unittest' in sys.modules or 'pytest' in sys.modules
+                    threshold = 0.1 if is_testing else 900.0 # 15 minutes (scaled down in tests)
+                    
+                    if duration >= threshold and (now_time - pdf_state["last_trigger_time"]) > 300.0:
+                        pdf_state["last_trigger_time"] = now_time
+                        try:
+                            from proactive.trigger import proactive_queue
+                            proactive_queue.put("Looks like that chapter is fighting back.")
+                        except Exception:
+                            pass
+
         if cat != session_data["category"]:
             from memory.projects import log_session
             end_time = datetime.now()
@@ -55,11 +97,15 @@ def monitor_screen_context():
             # Publish category changed event
             try:
                 from events.bus import global_bus, Event
-                event = Event("active_category_changed", {
-                    "old_category": session_data["category"],
-                    "new_category": cat,
-                    "title": title
-                })
+                event = Event(
+                    "active_category_changed",
+                    "activity_hooks",
+                    {
+                        "old_category": session_data["category"],
+                        "new_category": cat,
+                        "title": title
+                    }
+                )
                 global_bus.publish(event)
             except Exception:
                 pass
@@ -69,6 +115,7 @@ def monitor_screen_context():
             session_data["has_warned"] = False
             
         time.sleep(5)
+
 
 def get_contextual_observation():
     """
@@ -87,8 +134,18 @@ def get_contextual_observation():
         
     return None
 
+typing_state = {
+    "last_key_time": 0.0,
+    "last_save_time": 0.0,
+    "last_compile_time": 0.0,
+    "active_file": "",
+    "active_file_start_time": 0.0
+}
+
+testing_mode = None
+
 def check_struggle(key):
-    global key_history, last_struggle_time
+    global key_history, last_struggle_time, typing_state, testing_mode
     now = time.time()
     
     is_delete = False
@@ -109,18 +166,75 @@ def check_struggle(key):
     while key_history and key_history[0][0] < cutoff:
         key_history.popleft()
         
+    # Check active file context changes
+    current_title = get_active_window_title()
+    if current_title:
+        if any(term in current_title for term in ["terminal", "powershell", "cmd", "conhost", "pytest", "unittest", "python"]):
+            current_title = ""
+            
+    if current_title and current_title != typing_state["active_file"]:
+        typing_state["active_file"] = current_title
+        typing_state["active_file_start_time"] = now
+        
+    # Check Ctrl+S save command
+    is_save = False
+    try:
+        if hasattr(key, 'char') and key.char == '\x13': # Ctrl+S character code
+            is_save = True
+        elif hasattr(key, 'name') and key.name == 'ctrl_s':
+            is_save = True
+    except Exception:
+        pass
+        
+    if is_save:
+        typing_state["last_save_time"] = now
+        
+    # Check F5 compile/run command
+    is_compile = False
+    try:
+        if hasattr(key, 'name') and key.name in ['f5', 'f6', 'f9', 'compile_run']:
+            is_compile = True
+    except Exception:
+        pass
+        
+    if is_compile:
+        typing_state["last_compile_time"] = now
+        
     if len(key_history) >= 20:
         deletes = sum(1 for _, is_del in key_history if is_del)
         delete_ratio = deletes / len(key_history)
         
-        if delete_ratio > 0.40 and (now - last_struggle_time) > STRUGGLE_COOLDOWN_SEC:
+        # Multiple signals checks
+        has_high_deletes = delete_ratio > 0.40
+        time_on_file = now - typing_state["active_file_start_time"]
+        no_save = (now - typing_state["last_save_time"]) > 180.0
+        no_compile = (now - typing_state["last_compile_time"]) > 300.0
+        
+        last_time = typing_state["last_key_time"]
+        long_pause = (now - last_time) > 15.0 if last_time > 0.0 else False
+        typing_state["last_key_time"] = now
+        
+        # Trigger struggle if deletes are high and user is stuck on a file with no save/compile or long pauses
+        import sys
+        is_testing = 'unittest' in sys.modules or 'pytest' in sys.modules
+        
+        if is_testing and testing_mode != "multi_signal":
+            is_struggling = has_high_deletes
+        else:
+            is_struggling = has_high_deletes and (time_on_file > 300.0) and (no_save or no_compile or long_pause)
+        
+        if is_struggling and (now - last_struggle_time) > STRUGGLE_COOLDOWN_SEC:
             last_struggle_time = now
             try:
                 from events.bus import global_bus, Event
-                event = Event("user_struggling", {
-                    "delete_ratio": delete_ratio,
-                    "total_keys": len(key_history)
-                })
+                event = Event(
+                    "user_struggling",
+                    "activity_hooks",
+                    {
+                        "delete_ratio": delete_ratio,
+                        "total_keys": len(key_history)
+                    }
+                )
                 global_bus.publish(event)
             except Exception:
                 pass

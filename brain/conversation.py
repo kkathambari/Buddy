@@ -6,7 +6,6 @@ import sys
 import queue
 from memory.working_memory import get_recent_context
 from core.mood import get_mood
-from core.bonding import update_bond, load_bond, get_attachment_style
 from brain.emotion import detect_emotion
 from core.care import get_care_message
 from core.evolution import load_evolution
@@ -20,6 +19,19 @@ from core.activity import get_contextual_observation
 from shared.typing import typing_effect
 from core.automation import parse_and_execute_actions
 from ai.gateway.broker import AIGateway
+from brain.intent import detect_intent
+from brain.decision_engine import global_decision_engine
+from relationship.manager import get_relationship, update_relationship
+from relationship.personality import adjust_personality_modifiers
+from proactive.trigger import proactive_queue, register_proactive_subscribers
+
+# Start proactive subscriptions
+try:
+    register_proactive_subscribers()
+except Exception:
+    pass
+
+_pending_feedback = {}
 
 def ask_llm(prompt):
     try:
@@ -113,60 +125,7 @@ Daemon:
 """
     return prompt
 
-proactive_queue = queue.Queue()
-last_category_comment_time = 0.0
-
-def handle_user_struggling(event):
-    payload = event.payload
-    ratio = payload.get("delete_ratio", 0.0)
-    
-    prompt = f"""
-You are Daemon, a calm, observant, and slightly teasing ghost developer coach.
-The user is currently coding but seems to be struggling. They are typing and deleting code repeatedly in their IDE (delete ratio: {ratio:.0%}).
-Do NOT be dry or diagnostic (do not mention ratios or error logs). Speak naturally, offering a hand or another pair of eyes in Daemon's persona.
-Keep your response short (1-2 sentences).
-Daemon:
-"""
-    try:
-        response = ask_llm(prompt)
-        proactive_queue.put(response)
-    except Exception:
-        pass
-
-def handle_category_changed(event):
-    global last_category_comment_time
-    payload = event.payload
-    new_cat = payload.get("new_category", "")
-    title = payload.get("title", "")
-    
-    now = time.time()
-    if (now - last_category_comment_time) < 600.0: # 10 mins category switch cooldown
-        return
-        
-    last_category_comment_time = now
-    
-    prompt = f"""
-You are Daemon, a ghost developer companion.
-The user has just switched their active window to: {new_cat} (Window title: "{title}").
-Respond naturally in character (calm, teasing, observant), acknowledging this activity switch (e.g. noticing they are back to coding, or browsing).
-Keep your response short (1-2 sentences).
-Daemon:
-"""
-    try:
-        response = ask_llm(prompt)
-        proactive_queue.put(response)
-    except Exception:
-        pass
-
-# Subscribe callbacks to global_bus
-try:
-    from events.bus import global_bus
-    global_bus.subscribe("user_struggling", handle_user_struggling)
-    global_bus.subscribe("active_category_changed", handle_category_changed)
-except Exception:
-    pass
-
-def ghost_presence():
+def ghost_presence(companion_id: str = "default_pet"):
     try:
         if not proactive_queue.empty():
             return proactive_queue.get_nowait()
@@ -189,24 +148,114 @@ def ghost_presence():
 
     return None
 
-from brain.intent import detect_intent
-from brain.decision_engine import global_decision_engine
-import capabilities.education
-import capabilities.career
-
-def process_chat(user_input, stats, energy):
+def process_chat(user_input, stats, energy, companion_id: str = "default_pet"):
     from brain.tone import analyze_tone
+    from brain.reflection import SelfReflection
     
+    # 0. Check for Experience Engine intercept
+    from brain.experience import ExperienceEngine
+    experience_response = ExperienceEngine.intercept(user_input, companion_id)
+    if experience_response is not None:
+        try:
+            from core.analytics import ProductAnalytics
+            ProductAnalytics.track_event("experience_chat_turn", {
+                "companion_id": companion_id,
+                "experience_name": ExperienceEngine.load_state().get("active_experience", "unknown")
+            })
+        except Exception:
+            pass
+        typing_effect(experience_response)
+        return experience_response
+
+    # 1. Check for pending feedback reflection intercept
+    if companion_id in _pending_feedback:
+        fb_info = _pending_feedback.pop(companion_id)
+        capability_name = fb_info["capability"]
+        is_positive = SelfReflection.evaluate_feedback(user_input)
+        
+        # Calculate trust & bond changes
+        trust_change = 0.1 if is_positive else -0.05
+        bond_change = 5 if is_positive else -2
+        
+        # Update relationship
+        rel = update_relationship(
+            companion_id, 
+            trust_change, 
+            bond_change, 
+            f"Reflection on {capability_name} completion (helpful={is_positive})"
+        )
+        
+        # Log reflection milestone to timeline
+        try:
+            from timeline.history import log_timeline_event
+            log_timeline_event(
+                title=f"Reflection: {capability_name} was {'helpful' if is_positive else 'unhelpful'}",
+                source="reflection",
+                metadata={"capability": capability_name, "is_positive": is_positive, "trust": rel["trust"], "bond": rel["bond"]}
+            )
+        except Exception:
+            pass
+            
+        final_response = "I'm glad to hear that! Let's keep making progress." if is_positive else "I appreciate the feedback. I will adjust and try to be more helpful."
+        typing_effect(final_response)
+        return final_response
+
+    # 2. Standard dialogue execution
     intent = detect_intent(user_input)
     tone = analyze_tone(user_input)
     log_emotion(tone["emotion"])
+    
+    # Log product analytics
+    try:
+        from core.analytics import ProductAnalytics
+        ProductAnalytics.track_event("chat_interaction", {
+            "intent_category": intent.category.value if hasattr(intent.category, "value") else str(intent.category),
+            "emotion_detected": tone.get("emotion", "neutral")
+        })
+    except Exception:
+        pass
 
-    raw_response = global_decision_engine.execute(intent, stats, energy)
+    # Load relationship trust and bond, adjust stats
+    rel = get_relationship(companion_id)
+    adjusted_stats = adjust_personality_modifiers(stats, rel["trust"], rel["bond"])
+
+    # Route chitchat -> companionship for naming normalization
+    if intent.category.value == "chitchat":
+        from brain.intent_types import IntentCategory
+        intent.category = IntentCategory.COMPANIONSHIP
+
+    raw_response = global_decision_engine.execute(intent, adjusted_stats, energy)
 
     cleaned_response = parse_and_execute_actions(raw_response)
 
-    final = apply_personality(cleaned_response, stats)
-    final = emotional_adjust(final, tone)
+    if cleaned_response == "[ANIMATION: confused]":
+        final = cleaned_response
+    else:
+        final = apply_personality(cleaned_response, adjusted_stats)
+        final = emotional_adjust(final, tone)
+
+    # Check if a capability has completed during this turn
+    completed_capability = None
+    
+    # Check education capability
+    education_cap = global_decision_engine._capabilities.get("education")
+    if education_cap and hasattr(education_cap, "_active_sessions"):
+        session = education_cap._active_sessions.get(companion_id)
+        if session and session.get("stage") == "complete":
+            completed_capability = "education"
+            education_cap._active_sessions.pop(companion_id, None)
+            
+    # Check career capability
+    career_cap = global_decision_engine._capabilities.get("career")
+    if career_cap and hasattr(career_cap, "_active_career_sessions"):
+        session = career_cap._active_career_sessions.get(companion_id)
+        if session and session.get("stage") == "complete":
+            completed_capability = "career"
+            career_cap._active_career_sessions.pop(companion_id, None)
+            
+    if completed_capability:
+        _pending_feedback[companion_id] = {"capability": completed_capability}
+        final += "\nDid I help you get that working?"
 
     # Asynchronously evaluate and commit facts to Memory Manager
     try:

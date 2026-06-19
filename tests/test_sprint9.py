@@ -18,6 +18,8 @@ class TestSprint9(unittest.TestCase):
     def setUp(self):
         # Clear key history
         key_history.clear()
+        # Clear event bus subscribers to prevent background task pollution
+        global_bus._subscribers.clear()
         
     def test_profile_load_save(self):
         # Verify load_profile returns default structure if no file

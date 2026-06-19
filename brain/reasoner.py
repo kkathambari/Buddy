@@ -26,9 +26,20 @@ class CognitiveReasoner:
         except Exception:
             pass
 
-        # Retrieve relevant semantic memories
+        # Let Attention Engine select focus keywords and retrieve limits
+        from brain.attention import AttentionEngine
+        attention_state = AttentionEngine.determine_attention(text, chat_context)
+        focus_keywords = attention_state["focus_keywords"]
+        memory_limit = attention_state["memory_limit"]
+        logger.info(f"Attention focus: '{attention_state['primary_focus']}' with level {attention_state['attention_level']}. Keywords: {focus_keywords}")
+
+        # Retrieve relevant semantic memories based on attention keywords
         from memory.retriever import retrieve_relevant_facts
-        semantic_memories = retrieve_relevant_facts(text)
+        semantic_memories = []
+        for kw in focus_keywords:
+            semantic_memories.extend(retrieve_relevant_facts(kw))
+        # Deduplicate and limit
+        semantic_memories = list(dict.fromkeys(semantic_memories))[:memory_limit]
         memory_str = "\n".join(f"- {m}" for m in semantic_memories) if semantic_memories else "No directly relevant past memories."
 
         # Compile statistics
@@ -62,4 +73,7 @@ Daemon:
             return AIGateway.generate_response(prompt)
         except Exception as e:
             logger.error(f"Reasoning LLM call failed: {e}", exc_info=True)
-            return "I'm thinking... just a little slow right now."
+            import random
+            if random.random() < 0.3:
+                return "[ANIMATION: confused]"
+            return "The cognitive gate is fuzzy. Let's try that again."

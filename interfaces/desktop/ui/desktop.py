@@ -282,6 +282,16 @@ class DesktopPet:
         return self.sdk.send_chat_message(user_input)
 
     def on_reply_received(self, response):
+        if "[ANIMATION: confused]" in response or response == "I’m here… just a little slow right now.":
+            # Set animation state to dizzy (confusion)
+            self.state = "dizzy"
+            def recover():
+                time.sleep(5)
+                if self.state == "dizzy":
+                    self.state = "idle"
+            Thread(target=recover, daemon=True).start()
+            response = "I'm having trouble connecting to my thoughts right now. Let's try again in a moment."
+
         if not hasattr(self, 'chat_history'): self.chat_history = []
         self.chat_history.append(("pet", response))
         
@@ -361,9 +371,26 @@ class DesktopPet:
 
     def on_drop_files(self, files):
         if files:
-            folder = files[0].decode('gbk', errors='ignore') # windnd returns bytes
-            if os.path.isdir(folder):
-                self.load_custom_character(folder)
+            path = files[0].decode('gbk', errors='ignore') # windnd returns bytes
+            if os.path.isdir(path):
+                self.load_custom_character(path)
+            elif os.path.isfile(path) and path.lower().endswith(".pdf"):
+                self.handle_pdf_drop(path)
+
+    def handle_pdf_drop(self, path):
+        self.open_full_chat()
+        self.type_message_full(f"Uploaded and started studying: {os.path.basename(path)}")
+        self.send_full_reply_text(f"study pdf: {path}")
+
+    def send_full_reply_text(self, text):
+        if not hasattr(self, 'chat_history'): self.chat_history = []
+        self.chat_history.append(("user", text))
+        if hasattr(self, 'chat_text') and self.chat_text.winfo_exists():
+            self.chat_text.config(state="normal")
+            self.chat_text.insert("end", text + "\n\n", "user")
+            self.chat_text.see("end")
+            self.chat_text.config(state="disabled")
+        Thread(target=self.process_reply_async, args=(text,), daemon=True).start()
 
     def load_custom_character(self, folder):
         self.animations["idle"] = self.load_frames(os.path.join(folder, "idle")) or self.animations["idle"]

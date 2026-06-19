@@ -49,9 +49,10 @@ class TestBrainPipeline(unittest.TestCase):
 
     @patch('brain.reasoner.CognitiveReasoner.reason')
     def test_decision_engine_routing(self, mock_reason):
+        from capabilities.base import Capability
         # Setup mock capability
-        mock_handler = MagicMock()
-        mock_handler.return_value = "Mock Capability response"
+        mock_handler = MagicMock(spec=Capability)
+        mock_handler.execute.return_value = "Mock Capability response"
         
         engine = DecisionEngine()
         engine.register_capability("education", mock_handler)
@@ -60,7 +61,7 @@ class TestBrainPipeline(unittest.TestCase):
         intent = detect_intent("let's study databases")
         response = engine.execute(intent, {}, 100)
         self.assertEqual(response, "Mock Capability response")
-        mock_handler.assert_called_once()
+        mock_handler.execute.assert_called_once()
         
         # Test routing to greetings rule
         greeting_intent = detect_intent("hey buddy")

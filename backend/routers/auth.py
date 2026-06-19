@@ -1,11 +1,10 @@
 from fastapi import APIRouter, HTTPException, Depends, Header
 from backend.schemas.models import LoginRequest, AuthResponse, LinkRequest
 from backend.services.identity import FirebaseIdentityService
-from backend.repositories.firebase import FirebaseCompanionRepository
+from backend.repositories.factory import get_companion_repository
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 identity_service = FirebaseIdentityService()
-companion_repo = FirebaseCompanionRepository()
 
 def get_current_user(authorization: str = Header(None)):
     """Middleware dependency to parse and verify Bearer token."""
@@ -28,7 +27,8 @@ def login(payload: LoginRequest):
 @router.post("/link")
 def link_seed(payload: LinkRequest, current_user: dict = Depends(get_current_user)):
     user_uid = current_user.get("uid")
-    # Save the mapping User ID -> Companion Seed in Firebase database
+    companion_repo = get_companion_repository()
+    # Save the mapping User ID -> Companion Seed in database
     try:
         success = companion_repo.save(f"user_mapping/{user_uid}", {"soul_seed": payload.soul_seed})
         if success:
@@ -36,3 +36,4 @@ def link_seed(payload: LinkRequest, current_user: dict = Depends(get_current_use
         raise HTTPException(status_code=500, detail="Failed to save mapping to repository.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+

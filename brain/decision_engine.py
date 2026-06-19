@@ -1,9 +1,10 @@
 import random
-from typing import Any, Dict, Callable
+from typing import Any, Dict
 from brain.intent_types import Intent, IntentCategory
 from core.logging import setup_logger
 from core.exceptions import CapabilityException
 from brain.reasoner import CognitiveReasoner
+from capabilities.base import Capability
 
 logger = setup_logger("decision_engine")
 
@@ -14,11 +15,13 @@ class DecisionEngine:
     """
     
     def __init__(self):
-        self._capabilities: Dict[str, Callable[[Dict[str, Any], Dict[str, Any], float], str]] = {}
+        self._capabilities: Dict[str, Capability] = {}
         
-    def register_capability(self, name: str, handler: Callable[[Dict[str, Any], Dict[str, Any], float], str]) -> None:
-        """Registers a pluggable capability handler."""
-        self._capabilities[name] = handler
+    def register_capability(self, name: str, capability: Capability) -> None:
+        """Registers a pluggable capability handler instance."""
+        if not isinstance(capability, Capability):
+            raise TypeError(f"Capability must be an instance of Capability, got {type(capability)}")
+        self._capabilities[name] = capability
         logger.info(f"Registered capability in Decision Engine: '{name}'")
         
     def execute(self, intent: Intent, stats: Dict[str, Any], energy: float) -> str:
@@ -38,9 +41,13 @@ class DecisionEngine:
         
         # 1. Route to Learning capability (Education)
         if category == IntentCategory.LEARNING:
+            from core.feature_flags import FeatureFlags
+            if not FeatureFlags.is_enabled("education"):
+                logger.info("Education capability requested but feature is disabled by flag.")
+                return "The Education Capability is currently disabled."
             if "education" in self._capabilities:
                 try:
-                    return self._capabilities["education"](legacy_intent, stats, energy)
+                    return self._capabilities["education"].execute(legacy_intent, stats, energy)
                 except Exception as e:
                     logger.error(f"Education capability failed: {e}", exc_info=True)
                     raise CapabilityException(f"Education capability failed: {e}")
@@ -49,9 +56,13 @@ class DecisionEngine:
                     
         # 2. Route to Career capability
         elif category == IntentCategory.CAREER:
+            from core.feature_flags import FeatureFlags
+            if not FeatureFlags.is_enabled("career"):
+                logger.info("Career capability requested but feature is disabled by flag.")
+                return "The Career Capability is currently disabled."
             if "career" in self._capabilities:
                 try:
-                    return self._capabilities["career"](legacy_intent, stats, energy)
+                    return self._capabilities["career"].execute(legacy_intent, stats, energy)
                 except Exception as e:
                     logger.error(f"Career capability failed: {e}", exc_info=True)
                     raise CapabilityException(f"Career capability failed: {e}")
