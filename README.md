@@ -71,6 +71,9 @@ claude-code-main/
 │
 ├── data/                     # Application data (SQLite DB, soul stats, memories)
 │
+├── events/                   # Global Event Bus Architecture
+│   └── bus.py                # Pub/Sub event router linking hooks and components
+│
 ├── interfaces/               # Multi-platform client applications
 │   ├── desktop/              # Tkinter Desktop Pet (main.py, DevBuddy.bat, DevBuddy.spec)
 │   ├── android/              # Kivy Android App (buildozer.spec, build_apk.sh)
@@ -91,64 +94,126 @@ claude-code-main/
 
 ---
 
-## 🚀 Getting Started
+## 🚀 Key Features & Pillars
 
-### 📦 1. Run the Backend Server (Optional)
-The backend manages cloud statistics synchronization, user registration/login, and chat caching. 
-1. Navigate to the root directory:
+### 💻 1. Desktop Pet Client (`interfaces/desktop/`)
+- **Activity Monitoring**: Runs a low-overhead global background hook (`pynput`) to classify your current activity based on active window title names:
+  - **Coding**: IDEs (VS Code, PyCharm, IntelliJ, Vim).
+  - **Studying**: PDF viewers, Acrobat Reader.
+  - **Browsing**: Web browsers (Chrome, Edge, Brave).
+  - **Watching**: Streaming services (YouTube, Netflix).
+  - **Chatting**: Communication apps (Discord, Slack, Teams).
+- **Struggle Detector**: Detects if you're stuck or struggling based on high key delete/backspace ratios (exceeding 40%), pause duration, and time spent on the active document without compiling/saving.
+- **Physics Engine**: The pet falls, collides with the taskbar, and shows custom animations (`dizzy`) if dragged and thrown around the screen using realistic gravity and friction.
+- **Voice Interactions**: Features integrated Speech-to-Text (`SpeechRecognition`) and Text-to-Speech (`pyttsx3`) for fully hands-free conversations.
+- **Drag & Drop Loading**: Drop a PDF file directly onto the pet to stage and process it as custom learning context.
+
+### 📱 2. Android Mobile App (`interfaces/android/`)
+- **Native Kivy Frontend**: Multi-touch responsive layouts tailored for mobile dimensions.
+- **Background Syncing**: Keeps mobile pet attributes (bonding levels, hunger, energy) updated using mobile-native synchronization.
+- **Automated Packaging**: Includes complete `buildozer.spec` and automation shell scripts (`build_apk.sh`, `resume_build.sh`) to download NDK/SDK toolchains and package python code into an installable `.apk` file.
+
+### 🌐 3. Web Companion Dashboard (`interfaces/web/`)
+- **React Frontend**: Modern Vite + React single-page app utilizing styling systems.
+- **Analytics Visualization**: Tracks your historical productivity charts, coding hours, study milestones, and companion bonding levels.
+
+---
+
+## 🧠 Cognitive Engine (The Brain)
+
+DevBuddy features a decentralized AI reasoning process that interprets inputs, manages memories, and determines reactions:
+
+### A. Intent Classifier (`brain/intent.py`)
+Matches inputs to pre-defined categories (`GREETING`, `SYSTEM_COMMAND`, `PRODUCTIVITY_QUERY`, `LEARNING`, `CAREER`, `MEMORY_QUERY`, `EMOTION`, `COMPANIONSHIP`).
+
+### B. Attention Engine (`brain/attention.py`)
+Computes an attention intensity score (from 0 to 1) based on the user's input and current dialog length. It extracts semantic keywords to govern what memories are relevant, scaling memory lookup limits dynamically.
+
+### C. Cognitive Reasoner (`brain/reasoner.py`)
+Assembles prompts dynamically by loading and merging:
+1. Short-term dialog context from the **Working Memory**.
+2. Structured demographic information from the **User Profile**.
+3. Relevant historical snippets matched via the **Semantic Memory**.
+4. Personality adjustments governed by your pet's current statistics.
+
+### D. Pluggable Capabilities (`capabilities/`)
+- **Education Handler**: Creates dynamic study schedules, runs sandboxed test environments, tracks quiz answers, and increases learning mastery.
+- **Career Handler**: Advises on resume construction, performs mock interviews, and creates career milestone schedules.
+
+---
+
+## 🔗 Soul Sync: Cryptographic Device Pairing
+
+Pairing your desktop pet with your Android app uses a **3-word Soul Seed** (similar to a BIP-39 cryptocurrency wallet seed):
+1. **Generation**: The desktop app generates a randomized seed (e.g. `spectral-daemon-812`).
+2. **Hashing**: The seed is cryptographically salted and hashed (`SHA-256`) to create a secure UUID (`companion_id`).
+3. **Data Sync**:
+   - The desktop pet pushes soul stats (energy, bonding levels, rarity) to the FastAPI server endpoint `/sync/{companion_id}`.
+   - The Android client parses the same seed, hashes it locally, and fetches/syncs stats from the same backend endpoint.
+   - Real-time updates (like message notifications and energy decay) are broadcasted to all connected clients via WebSocket channels (`/ws`).
+
+---
+
+## ⚙️ REST API Reference
+
+| Endpoint | Method | Payload | Description |
+| :--- | :--- | :--- | :--- |
+| `/auth/login` | `POST` | `{email, password}` | Authenticates user credentials with Firebase or Mock auth. |
+| `/auth/link` | `POST` | `{soul_seed}` | Maps the authenticated user profile to a companion ID. |
+| `/sync/{id}` | `GET` | *None* | Downloads the latest companion soul stats (energy, bond, rarity). |
+| `/sync/{id}` | `PUT` | `{name, energy, stats...}` | Saves/synchronizes companion state attributes. |
+| `/chat` | `POST` | `{message, companion_id}` | Routes user messages to the Decision Engine and LLM. |
+| `/health` | `GET` | *None* | Verifies database integration and AI provider status. |
+
+---
+
+## 🚀 Setup & Execution Guide
+
+### 1. Prerequisites
+- Python 3.10+ installed on your host machine.
+- [Ollama](https://ollama.com/) (Optional: Required if using local LLMs. Run `ollama run llama3` or `ollama run deepseek-coder`).
+
+---
+
+### 2. Startup FastAPI Backend
+1. Open your terminal at the repository root and install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
-2. Start the FastAPI server using Uvicorn:
+2. Launch the backend:
    ```bash
    python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
    ```
-*Note: If the backend is not running, the SDK client automatically falls back to offline mode and runs the AI/DB engine locally.*
 
 ---
 
-### 💻 2. Setup & Run the Desktop Client (Windows)
-The Desktop version launches a cute, physics-enabled ghost companion on your screen.
-- **Quick Launch**: Double-click `DevBuddy.lnk` on your Desktop or run the batch script `interfaces/desktop/DevBuddy.bat`.
-- **Manual Launch**:
-  ```bash
-  cd interfaces/desktop
-  python main.py
-  ```
-- **Interactions**:
-  - **Single Click**: Expands/collapses the speech bubble.
-  - **Double Click / Click during bubble**: Expands/collapses the full dark-themed chat interface.
-  - **Right-Click**: Opens settings to configure the **AI Provider (Ollama, Gemini, Claude, ChatGPT)**, edit API keys, change your companion's name, or generate a **3-word Soul Seed** for cloud backup.
-  - **Drag**: Left-click and hold to drag the pet around. Toss it with speed to trigger gravity/dizziness physics!
-  - **Drag & Drop**: Drag a PDF file onto the pet to have it automatically uploaded and parsed as a learning companion.
+### 3. Setup & Launch Desktop Pet
+1. **Shortcut Launch**: Double-click the **`DevBuddy`** shortcut on your Desktop (or run `interfaces/desktop/DevBuddy.bat`).
+2. **Manual CLI Launch**:
+   ```bash
+   cd interfaces/desktop
+   python main.py
+   ```
+3. Right-click the pet to open **Settings** and configure your provider (`gemini`, `claude`, `chatgpt`, or `ollama`) and paste your API key.
 
 ---
 
-### 📱 3. Compile & Run the Android Client
-The Android mobile client synchronizes with your desktop pet via the **Soul Seed** code.
-1. Navigate to the android folder:
+### 4. Compile Kivy Android App
+1. Navigate to the android interface directory:
    ```bash
    cd interfaces/android
    ```
-2. Build the APK using Buildozer (requires WSL or Linux):
+2. Build the native package (requires Linux or WSL):
    ```bash
    bash build_apk.sh
    ```
-3. Locate the output APK in the `bin/` directory and install it on your mobile device.
+*If a network drop occurs during compilation, resume the process by running `bash resume_build.sh`.*
 
 ---
 
-## ⚙️ AI Models & Configuration
-You can customize the conversational provider inside Settings. Supported options include:
-- **Ollama**: Free, local execution (defaults to `llama3` for general chat, `deepseek-coder` for coding, and `mistral` for explanations).
-- **Gemini**: Configured with your `gemini_api_key`.
-- **Claude / ChatGPT**: Configured with their respective API keys.
-
----
-
-## 🧪 Running Tests
-We maintain an automated verification suite verifying API routing, memory engines, career/education capabilities, and stats.
-Run the tests from the root directory:
+### 5. Running Automated Tests
+The repository contains a robust testing suite verifying Capabilites, APIs, SQL repositories, and Memory management.
+Run them from the repository root:
 ```bash
 python -m unittest discover -s tests
 ```
