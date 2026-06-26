@@ -29,7 +29,7 @@ class DesktopPet:
         if email and password:
             self.sdk.login(email, password)
         if config.get("pet_cloud_id"):
-            self.sdk.soul_seed = config["pet_cloud_id"]
+            self.sdk.soul_seed = config["pet_cloud_id"].strip()
             
         self.root = tk.Tk()
         self.root.title("DevBuddy")
@@ -131,6 +131,13 @@ class DesktopPet:
             self.bubble_label.config(text=text)
 
     def speak(self, text):
+        if hasattr(self, 'full_chat_win') and self.full_chat_win.winfo_exists():
+            self.type_message_full(text)
+            return
+        if hasattr(self, 'bubble_win') and self.bubble_win.winfo_exists():
+            self.bubble_label.config(text=text)
+            return
+
         bubble = tk.Toplevel(self.root)
         bubble.overrideredirect(True)
         bubble.attributes("-topmost", True)
@@ -276,10 +283,11 @@ class DesktopPet:
         time.sleep(random.uniform(0.8, 1.5))
         
         if int(new_bond) % 10 == 0 and int(new_bond) > 0:
-            self.root.after(0, lambda: setattr(self, 'state', 'celebrate'))
+            trigger_state = "heart" if random.random() < 0.5 else "celebrate"
+            self.root.after(0, lambda: setattr(self, 'state', trigger_state))
             def revert():
                 time.sleep(4)
-                if getattr(self, 'state', 'idle') == 'celebrate':
+                if getattr(self, 'state', 'idle') in ['celebrate', 'heart']:
                     setattr(self, 'state', 'idle')
             Thread(target=revert, daemon=True).start()
         else:
@@ -300,6 +308,24 @@ class DesktopPet:
                     self.state = "idle"
             Thread(target=recover, daemon=True).start()
             response = "I'm having trouble connecting to my thoughts right now. Let's try again in a moment."
+
+        if "[ANIMATION: heart]" in response:
+            self.state = "heart"
+            def recover():
+                time.sleep(4)
+                if self.state == "heart":
+                    self.state = "idle"
+            Thread(target=recover, daemon=True).start()
+            response = response.replace("[ANIMATION: heart]", "").strip()
+
+        if "[ANIMATION: celebrate]" in response:
+            self.state = "celebrate"
+            def recover():
+                time.sleep(4)
+                if self.state == "celebrate":
+                    self.state = "idle"
+            Thread(target=recover, daemon=True).start()
+            response = response.replace("[ANIMATION: celebrate]", "").strip()
 
         if not hasattr(self, 'chat_history'): self.chat_history = []
         self.chat_history.append(("pet", response))
@@ -341,11 +367,11 @@ class DesktopPet:
                     self.config[f"{provider}_api_key"] = api_key
                     
         # Generate Soul Seed if it doesn't exist
-        current_seed = self.config.get("pet_cloud_id", "")
+        current_seed = self.config.get("pet_cloud_id", "").strip()
         if not current_seed or current_seed == "default_pet":
             try:
                 from core.auth import generate_soul_seed
-                current_seed = generate_soul_seed()
+                current_seed = generate_soul_seed().strip()
                 set_config("pet_cloud_id", current_seed)
                 self.config["pet_cloud_id"] = current_seed
             except Exception:

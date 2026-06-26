@@ -25,6 +25,8 @@ class TestAPI(unittest.TestCase):
         # Fresh config
         self.original_config = get_config()
         set_config("repository_type", "sqlite")
+        set_config("firebase_url", "")
+        set_config("firebase_api_key", "")
         
         # Fresh DB
         if os.path.exists(DB_PATH):

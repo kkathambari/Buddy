@@ -11,14 +11,58 @@ else:
 if root_dir not in sys.path:
     sys.path.insert(0, root_dir)
 
+from shared.storage import safe_load, safe_save
+
+def migrate_and_merge_data(root_path):
+    desktop_data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+    root_data_dir = os.path.join(root_path, "data")
+    
+    if os.path.abspath(desktop_data_dir) == os.path.abspath(root_data_dir):
+        return
+        
+    if not os.path.exists(desktop_data_dir):
+        return
+        
+    os.makedirs(root_data_dir, exist_ok=True)
+    
+    import shutil
+    for file_name in os.listdir(desktop_data_dir):
+        src_file = os.path.join(desktop_data_dir, file_name)
+        dst_file = os.path.join(root_data_dir, file_name)
+        
+        if not os.path.isfile(src_file):
+            continue
+            
+        if file_name == "config.json":
+            local_config = safe_load(src_file, {})
+            root_config = safe_load(dst_file, {})
+            
+            merged_config = root_config.copy()
+            merged_config.update(local_config)
+            
+            # Strip whitespace from string values
+            for k, v in merged_config.items():
+                if isinstance(v, str):
+                    merged_config[k] = v.strip()
+                    
+            safe_save(dst_file, merged_config)
+        else:
+            if not os.path.exists(dst_file) or os.path.getmtime(src_file) > os.path.getmtime(dst_file):
+                try:
+                    shutil.copy2(src_file, dst_file)
+                except Exception as e:
+                    print(f"Failed to migrate file {file_name}: {e}")
+
+# Migrate and merge configuration before changing directory
+migrate_and_merge_data(root_dir)
+os.chdir(root_dir)
+
 import time
 import threading
 from ui.desktop import DesktopPet
-from shared.storage import safe_load
 from core.activity import start_listener
 from core.decay import update_energy
 from core.mood import get_mood
-from shared.storage import safe_save
 
 def ensure_default_data():
     if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
