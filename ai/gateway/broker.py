@@ -4,7 +4,10 @@ from core.logging import setup_logger
 import subprocess
 import sys
 
+from ai.gateway.router import ModelRouter
+
 logger = setup_logger("ai_gateway")
+global_model_router = ModelRouter()
 
 class AIGateway:
     """
@@ -17,17 +20,23 @@ class AIGateway:
         Sends the prompt to the configured LLM provider and returns the raw string response.
         Raises GatewayException on failures.
         """
+        complexity = kwargs.get("complexity", "high")
+        budget = kwargs.get("budget", 0.5)
+        
+        # Consult ModelRouter to determine route
+        route = global_model_router.route_request(complexity, budget)
+        logger.info(f"ModelRouter selected route: '{route}'")
+        
         config = get_config()
-        provider = config.get("ai_provider", "ollama")
         
-        logger.info(f"Routing generation request to provider: '{provider}'")
-        
-        if provider == "chatgpt":
-            return AIGateway._call_chatgpt(prompt, config)
-        elif provider == "claude":
-            return AIGateway._call_claude(prompt, config)
-        elif provider == "gemini":
-            return AIGateway._call_gemini(prompt, config)
+        if route == "cloud_gemini":
+            try:
+                res = AIGateway._call_gemini(prompt, config)
+                global_model_router.record_spend(0.2) # 0.2 cents per call
+                return res
+            except Exception as e:
+                logger.warning(f"Cloud execution failed: {e}. Falling back to local_ollama.")
+                return AIGateway._call_ollama(prompt, config)
         else:
             return AIGateway._call_ollama(prompt, config)
 

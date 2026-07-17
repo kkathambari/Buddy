@@ -83,3 +83,35 @@ class AttentionEngine:
             "memory_limit": memory_limit,
             "attention_level": attention_level
         }
+
+    @classmethod
+    def optimize_token_budget(cls, context_chunks: List[str], max_tokens: int = 1500) -> List[str]:
+        """
+        Ranks and trims context chunks to ensure the total token budget is not exceeded.
+        Uses a simple word-count estimation (1 word ~= 1.3 tokens).
+        """
+        if not context_chunks:
+            return []
+            
+        ranked_chunks = []
+        for chunk in context_chunks:
+            word_count = len(chunk.split())
+            token_estimate = int(word_count * 1.3)
+            ranked_chunks.append((token_estimate, chunk))
+
+        accumulated_tokens = 0
+        accepted_chunks = []
+        for token_est, chunk in ranked_chunks:
+            if accumulated_tokens + token_est <= max_tokens:
+                accepted_chunks.append(chunk)
+                accumulated_tokens += token_est
+            else:
+                # If first chunk itself exceeds, truncate it to fit
+                if not accepted_chunks and token_est > max_tokens:
+                    words = chunk.split()
+                    allowed_words = int(max_tokens / 1.3)
+                    truncated_chunk = " ".join(words[:allowed_words]) + "..."
+                    accepted_chunks.append(truncated_chunk)
+                break
+                
+        return accepted_chunks

@@ -61,16 +61,22 @@ class DesktopPet:
         self.frame_index = 0
         self.running = True
 
-        self.animations = {
-            "idle": self.load_frames("assets/idle"),
-            "walk": self.load_frames("assets/walk"),
-            "sleep": self.load_frames("assets/sleep"),
-            "fall": self.load_frames("assets/fall"),
-            "busy": self.load_frames("assets/busy"),
-            "dizzy": self.load_frames("assets/dizzy"),
-            "celebrate": self.load_frames("assets/celebrate"),
-            "heart": self.load_frames("assets/heart")
-        }
+        sheet_path = os.path.join(resource_root, "assets", "sprite_sheet.png")
+        sheet_anims = self.load_sprite_sheet(sheet_path)
+        if sheet_anims:
+            self.animations = sheet_anims
+        else:
+            self.animations = {
+                "idle": self.load_frames("assets/idle"),
+                "walk": self.load_frames("assets/walk"),
+                "sleep": self.load_frames("assets/sleep"),
+                "fall": self.load_frames("assets/fall"),
+                "busy": self.load_frames("assets/busy"),
+                "dizzy": self.load_frames("assets/dizzy"),
+                "celebrate": self.load_frames("assets/celebrate"),
+                "heart": self.load_frames("assets/heart"),
+                "review": self.load_frames("assets/review")
+            }
 
         # Start loops
         Thread(target=self.animate_loop, daemon=True).start()
@@ -394,6 +400,42 @@ class DesktopPet:
             else:
                 self.speak("Failed to find cloud memory.")
 
+    def load_sprite_sheet(self, sheet_path):
+        cell_size = 160
+        row_mapping = [
+            ("idle", 6),       # Row 0: Idle (6 frames)
+            ("busy", 3),       # Row 1: Thinking (3 frames)
+            ("heart", 3),      # Row 2: Waiting (3 frames)
+            ("walk", 4),       # Row 3: Walk (4 frames)
+            ("review", 3),     # Row 4: Review (3 frames)
+            ("dizzy", 3),      # Row 5: Dizzy (3 frames)
+            ("celebrate", 3),  # Row 6: Celebrate (3 frames)
+            ("sleep", 3),      # Row 7: Sleep (3 frames)
+            ("fall", 3)        # Row 8: Fall (3 frames)
+        ]
+        
+        anim_dict = {}
+        if not os.path.exists(sheet_path):
+            return None
+            
+        try:
+            sheet_img = Image.open(sheet_path)
+            for r_idx, (state, count) in enumerate(row_mapping):
+                frames = []
+                for c_idx in range(count):
+                    x1 = c_idx * cell_size
+                    y1 = r_idx * cell_size
+                    x2 = x1 + cell_size
+                    y2 = y1 + cell_size
+                    
+                    frame_crop = sheet_img.crop((x1, y1, x2, y2))
+                    frames.append(ImageTk.PhotoImage(frame_crop))
+                anim_dict[state] = frames
+            return anim_dict
+        except Exception as e:
+            print(f"Error loading sprite sheet: {e}")
+            return None
+
     def load_frames(self, folder):
         frames = []
         if os.path.isabs(folder):
@@ -441,6 +483,7 @@ class DesktopPet:
         self.animations["dizzy"] = self.load_frames(os.path.join(folder, "dizzy")) or self.animations.get("dizzy", [])
         self.animations["celebrate"] = self.load_frames(os.path.join(folder, "celebrate")) or self.animations.get("celebrate", [])
         self.animations["heart"] = self.load_frames(os.path.join(folder, "heart")) or self.animations.get("heart", [])
+        self.animations["review"] = self.load_frames(os.path.join(folder, "review")) or self.animations.get("review", [])
         self.state = "idle"
 
     def animate_loop(self):

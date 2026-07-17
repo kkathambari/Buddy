@@ -2,7 +2,32 @@ from typing import Any, Dict
 from ai.gateway.broker import AIGateway
 from core.logging import setup_logger
 
+# Map intent agent types to sub-agent instances
+from brain.agents.planner_agent import PlannerAgent
+from brain.agents.research_agent import ResearchAgent
+from brain.agents.coding_agent import CodingAgent
+from brain.agents.document_agent import DocumentAgent
+from brain.agents.automation_agent import AutomationAgent
+from brain.agents.memory_agent import MemoryAgent
+from brain.agents.communication_agent import CommunicationAgent
+
+AGENTS_MAP = {
+    "education": DocumentAgent(),
+    "coding": CodingAgent(),
+    "career": ResearchAgent(),
+    "automation": AutomationAgent(),
+    "memory": MemoryAgent(),
+    "communication": CommunicationAgent(),
+    "planner": PlannerAgent()
+}
+
 logger = setup_logger("reasoner")
+
+from brain.personality.emotion import EmotionMatrix
+from brain.personality.achievements import AchievementManager
+
+global_emotion = EmotionMatrix()
+global_achievements = AchievementManager()
 
 class CognitiveReasoner:
     """Core reasoning layer of DevBuddy Brain, determining system context, memories, and prompts."""
@@ -11,6 +36,14 @@ class CognitiveReasoner:
     def reason(intent: Dict[str, Any], stats: Dict[str, Any], energy: float) -> str:
         text = intent["raw_text"]
         logger.info(f"Reasoner evaluating context for: '{text[:40]}...'")
+
+        # Update emotion matrix and XP progression
+        global_achievements.add_xp(15)
+        text_lower = text.lower()
+        if any(w in text_lower for w in ["thanks", "good", "great", "awesome"]):
+            global_emotion.update_emotional_state("compliment")
+        elif any(w in text_lower for w in ["wrong", "bad", "fix", "fail"]):
+            global_emotion.update_emotional_state("critique")
 
         # Load short-term history context
         from memory.working_memory import get_recent_context
@@ -45,12 +78,81 @@ class CognitiveReasoner:
         # Compile statistics
         stats_str = "\n".join(f"- {k}: {v}/100" for k, v in stats.items()) if stats else "- No specific stats."
 
+        # Check for active plan and execute verification/reflection
+        from brain.planner import global_planner
+        companion_id = intent.get("companion_id", "default_companion")
+        active_plan = global_planner.get_plan(companion_id)
+        plan_context = ""
+        
+        if active_plan:
+            # 1. Verification Loop: Check if user's input verifies any active running task
+            running_tasks = [t for t in active_plan.tasks.values() if t.status == "running"]
+            retried_task_ids = set()
+            for task in running_tasks:
+                verification_needed = task.verification.lower()
+                if any(k in text.lower() for k in ["done", "pass", "complete", "compiled", "yes"]) or (verification_needed and verification_needed in text.lower()):
+                    active_plan.mark_task_status(task.task_id, "completed", "Verified successfully via user interaction.")
+                    logger.info(f"Verified and completed task '{task.task_id}' based on user input.")
+                elif any(k in text.lower() for k in ["fail", "error", "broken", "no"]):
+                    active_plan.mark_task_status(task.task_id, "pending")
+                    retried_task_ids.add(task.task_id)
+                    plan_context += f"\n[RETRACT: Task '{task.title}' failed verification. Automatically retrying and resetting status to pending.]"
+                    logger.warning(f"Task '{task.task_id}' failed verification. Resetting to pending.")
+            
+            # 2. Get next executable tasks and execute/observe
+            executable_tasks = [t for t in active_plan.get_executable_tasks() if t.task_id not in retried_task_ids]
+            if executable_tasks:
+                next_task = executable_tasks[0]
+                active_plan.mark_task_status(next_task.task_id, "running")
+                
+                # Dynamic Routing: Get the corresponding specialized agent and run it
+                agent = AGENTS_MAP.get(next_task.agent)
+                if agent:
+                    from core.runtime import global_runtime
+                    # Check if agent is registered
+                    if next_task.agent not in global_runtime._active_agents or global_runtime._active_agents[next_task.agent]["instance"] is None:
+                        global_runtime.register_agent(next_task.agent, agent, {"type": next_task.agent})
+                        
+                    # Define a coroutine function wrapper to run in the background
+                    async def execute_and_update(task_node, plan_ref):
+                        try:
+                            result = await agent.execute_task(task_node)
+                            plan_ref.mark_task_status(task_node.task_id, "completed", result)
+                        except Exception as err:
+                            logger.error(f"Error executing agent task {task_node.task_id}: {err}")
+                            plan_ref.mark_task_status(task_node.task_id, "failed", str(err))
+                            
+                    # Start the agent task asynchronously in the background loop
+                    global_runtime.run_agent_task(next_task.agent, next_task.task_id, execute_and_update, next_task, active_plan)
+                    plan_context += f"\n[CURRENT PLAN STEP: Deployed {next_task.agent} agent to run: '{next_task.title}']"
+                    logger.info(f"Automatically started next task '{next_task.task_id}' under '{next_task.agent}' agent.")
+                else:
+                    active_plan.mark_task_status(next_task.task_id, "completed", "Fallback execution complete.")
+                    plan_context += f"\n[CURRENT PLAN STEP: Fallback completed: '{next_task.title}']"
+
+            # Compile plan status for prompt
+            plan_context += f"\nActive Goal: {active_plan.goal}\nPlan Progress:\n"
+            for tid, t in active_plan.tasks.items():
+                plan_context += f"- [{t.status.upper()}] {t.title} (Agent: {t.agent})\n"
+
         # Build prompt
+        import json
         prompt = f"""
 You are Daemon, a male ghost companion.
 Your current status: Energy: {energy}/100.
 Your stats:
 {stats_str}
+
+Your Emotional State:
+{json.dumps(global_emotion.to_dict(), indent=2)}
+
+Your Progression Status:
+Level: {global_achievements.level} (XP: {global_achievements.xp}/{global_achievements.get_xp_threshold()})
+Achievements: {", ".join(global_achievements.achievements) if global_achievements.achievements else "None"}
+
+Active Plan Context:
+{plan_context if plan_context else "No active plan."}
+
 
 User Profile details:
 {profile_str}

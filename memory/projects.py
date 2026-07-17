@@ -1,6 +1,7 @@
 import json
 import os
 from datetime import datetime
+from typing import Dict, List, Any
 
 def get_productivity_file():
     try:
@@ -84,3 +85,35 @@ def analyze_productivity():
         insight += "User works for dangerously long periods. Remind them to stretch."
         
     return insight
+
+DECISIONS_FILE = "data/project_decisions.json"
+
+def load_project_decisions() -> Dict[str, List[Dict[str, Any]]]:
+    from shared.storage import safe_load
+    return safe_load(DECISIONS_FILE, {})
+
+def save_project_decisions(data: Dict[str, List[Dict[str, Any]]]) -> None:
+    from shared.storage import safe_save
+    safe_save(DECISIONS_FILE, data)
+
+def log_project_decision(project_path: str, decision_id: str, title: str, status: str, content: str) -> None:
+    """Logs an architectural design decision or project milestone."""
+    data = load_project_decisions()
+    if project_path not in data:
+        data[project_path] = []
+        
+    data[project_path] = [d for d in data[project_path] if d["id"] != decision_id]
+    
+    data[project_path].append({
+        "id": decision_id,
+        "title": title,
+        "status": status,
+        "content": content,
+        "timestamp": datetime.now().isoformat()
+    })
+    save_project_decisions(data)
+
+def get_project_decisions(project_path: str) -> List[Dict[str, Any]]:
+    """Retrieves all logged decisions for the workspace path."""
+    data = load_project_decisions()
+    return data.get(project_path, [])

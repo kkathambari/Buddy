@@ -220,8 +220,50 @@ class AndroidPetApp(App):
         self.append_chat(f"[color=aaaaaa]* {name} is ready! *[/color]\n")
 
     def load_all_frames(self):
+        sheet_path = os.path.join("assets", "sprite_sheet.png")
+        if os.path.exists(sheet_path):
+            try:
+                from kivy.core.image import Image as CoreImage
+                core_img = CoreImage(sheet_path)
+                sheet_texture = core_img.texture
+                sheet_w, sheet_h = sheet_texture.size
+                
+                cell_size = 160
+                row_mapping = [
+                    ("idle", 6),       # Row 0: Idle (6 frames)
+                    ("busy", 3),       # Row 1: Thinking (3 frames)
+                    ("heart", 3),      # Row 2: Waiting (3 frames)
+                    ("walk", 4),       # Row 3: Walk (4 frames)
+                    ("review", 3),     # Row 4: Review (3 frames)
+                    ("dizzy", 3),      # Row 5: Dizzy (3 frames)
+                    ("celebrate", 3),  # Row 6: Celebrate (3 frames)
+                    ("sleep", 3),      # Row 7: Sleep (3 frames)
+                    ("fall", 3)        # Row 8: Fall (3 frames)
+                ]
+                
+                anim_dict = {}
+                for r_idx, (state, count) in enumerate(row_mapping):
+                    anim_dict[state] = []
+                    for c_idx in range(count):
+                        # Coordinates in standard top-left space
+                        x = c_idx * cell_size
+                        y = r_idx * cell_size
+                        
+                        # Kivy's texture coordinates have the origin at the bottom-left
+                        kivy_y = sheet_h - y - cell_size
+                        
+                        # Extract sub-texture region
+                        region = sheet_texture.get_region(x, kivy_y, cell_size, cell_size)
+                        anim_dict[state].append(region)
+                self.use_textures = True
+                return anim_dict
+            except Exception as e:
+                print(f"Error loading sprite sheet in Kivy: {e}")
+                
+        # Fallback to loading folders of individual frames
+        self.use_textures = False
         anim_dict = {}
-        for state in ["idle", "walk", "sleep", "fall", "busy", "celebrate", "dizzy", "heart"]:
+        for state in ["idle", "walk", "sleep", "fall", "busy", "celebrate", "dizzy", "heart", "review"]:
             path = os.path.join("assets", state)
             anim_dict[state] = []
             if os.path.exists(path):
@@ -234,7 +276,11 @@ class AndroidPetApp(App):
         current_frames = self.frames.get(self.state, [])
         if current_frames:
             self.frame_index = (self.frame_index + 1) % len(current_frames)
-            self.pet_image.source = current_frames[self.frame_index]
+            frame = current_frames[self.frame_index]
+            if getattr(self, "use_textures", False):
+                self.pet_image.texture = frame
+            else:
+                self.pet_image.source = frame
 
     def update_pet_stats(self, dt):
         from core.decay import update_energy
