@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, Header
 from backend.schemas.models import LoginRequest, AuthResponse, LinkRequest
 from backend.services.identity import FirebaseIdentityService
 from backend.repositories.factory import get_companion_repository
+from backend.services.ownership import claim_companion
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 identity_service = FirebaseIdentityService()
@@ -27,6 +28,8 @@ def login(payload: LoginRequest):
 @router.post("/link")
 def link_seed(payload: LinkRequest, current_user: dict = Depends(get_current_user)):
     user_uid = current_user.get("uid")
+    if not claim_companion(user_uid, payload.soul_seed):
+        raise HTTPException(status_code=403, detail="This companion is already linked to another user.")
     companion_repo = get_companion_repository()
     # Save the mapping User ID -> Companion Seed in database
     try:
@@ -36,4 +39,3 @@ def link_seed(payload: LinkRequest, current_user: dict = Depends(get_current_use
         raise HTTPException(status_code=500, detail="Failed to save mapping to repository.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-

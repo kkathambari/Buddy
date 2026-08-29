@@ -5,6 +5,7 @@ Executes shell commands with timeout guards. Requires HIGH_RISK permission level
 
 import asyncio
 import subprocess
+import os
 from typing import Dict, Any
 from ..base_tool import BaseTool, ToolMetadata, ToolHealthStatus
 
@@ -33,11 +34,12 @@ class TerminalTool(BaseTool):
         self._is_initialized = True
 
     async def validate(self, params: Dict[str, Any]) -> bool:
+        # Disabled unless an operator explicitly enables it. A generated tool call
+        # cannot turn this on by passing a parameter.
+        if os.getenv("BUDDY_ENABLE_TERMINAL_TOOL", "").lower() != "true":
+            return False
         cmd = params.get("command", "").strip()
         if not cmd:
-            return False
-        # Prevent obvious interactive destructive blockers in automatic execution
-        if cmd in ["rm -rf /", "format c:"]:
             return False
         return True
 

@@ -61,22 +61,30 @@ class DesktopPet:
         self.frame_index = 0
         self.running = True
 
-        sheet_path = os.path.join(resource_root, "assets", "sprite_sheet.png")
-        sheet_anims = self.load_sprite_sheet(sheet_path)
-        if sheet_anims:
-            self.animations = sheet_anims
+        # Prefer the deliberately framed Boo portrait.  The legacy sprite sheet is
+        # a freeform illustration collage rather than a strict grid, so cropping
+        # it into animation cells produces clipped, inconsistent avatars.
+        boo_path = os.path.join(resource_root, "assets", "boo.png")
+        boo_animation = self.load_boo_avatar(boo_path)
+        if boo_animation:
+            self.animations = boo_animation
         else:
-            self.animations = {
-                "idle": self.load_frames("assets/idle"),
-                "walk": self.load_frames("assets/walk"),
-                "sleep": self.load_frames("assets/sleep"),
-                "fall": self.load_frames("assets/fall"),
-                "busy": self.load_frames("assets/busy"),
-                "dizzy": self.load_frames("assets/dizzy"),
-                "celebrate": self.load_frames("assets/celebrate"),
-                "heart": self.load_frames("assets/heart"),
-                "review": self.load_frames("assets/review")
-            }
+            sheet_path = os.path.join(resource_root, "assets", "sprite_sheet.png")
+            sheet_anims = self.load_sprite_sheet(sheet_path)
+            if sheet_anims:
+                self.animations = sheet_anims
+            else:
+                self.animations = {
+                    "idle": self.load_frames("assets/idle"),
+                    "walk": self.load_frames("assets/walk"),
+                    "sleep": self.load_frames("assets/sleep"),
+                    "fall": self.load_frames("assets/fall"),
+                    "busy": self.load_frames("assets/busy"),
+                    "dizzy": self.load_frames("assets/dizzy"),
+                    "celebrate": self.load_frames("assets/celebrate"),
+                    "heart": self.load_frames("assets/heart"),
+                    "review": self.load_frames("assets/review")
+                }
 
         # Start loops
         Thread(target=self.animate_loop, daemon=True).start()
@@ -417,7 +425,6 @@ class DesktopPet:
         anim_dict = {}
         if not os.path.exists(sheet_path):
             return None
-            
         try:
             sheet_img = Image.open(sheet_path)
             for r_idx, (state, count) in enumerate(row_mapping):
@@ -434,6 +441,22 @@ class DesktopPet:
             return anim_dict
         except Exception as e:
             print(f"Error loading sprite sheet: {e}")
+            return None
+
+    def load_boo_avatar(self, avatar_path):
+        """Load one consistently framed Boo image for every behavioural state."""
+        if not os.path.exists(avatar_path):
+            return None
+        try:
+            avatar = Image.open(avatar_path).convert("RGBA")
+            avatar.thumbnail((160, 160), Image.Resampling.LANCZOS)
+            frame = Image.new("RGBA", (160, 160), (0, 0, 0, 0))
+            frame.alpha_composite(avatar, ((160 - avatar.width) // 2, (160 - avatar.height) // 2))
+            photo = ImageTk.PhotoImage(frame)
+            states = ("idle", "busy", "heart", "walk", "review", "dizzy", "celebrate", "sleep", "fall")
+            return {state: [photo] for state in states}
+        except Exception as e:
+            print(f"Error loading Boo avatar: {e}")
             return None
 
     def load_frames(self, folder):

@@ -1,5 +1,8 @@
 import os
 import json
+import hashlib
+import secrets
+import time
 from typing import Dict, Any, List, Callable, Optional
 from core.logging import setup_logger
 from shared.storage import safe_load, safe_save
@@ -15,6 +18,7 @@ class PermissionManager:
         self.permissions_cache: Dict[str, Dict[str, str]] = {} # Maps skill_id -> {permission: status}
         self.local_only_mode: bool = False
         self._prompt_callback: Optional[Callable[[str, str], bool]] = None
+        self._pending_confirmations: Dict[str, Dict[str, Any]] = {}
         self.load_permissions()
 
     def set_prompt_callback(self, callback: Callable[[str, str], bool]) -> None:
@@ -105,6 +109,36 @@ class PermissionManager:
         """Resets the permissions cache."""
         self.permissions_cache.clear()
         self.save_permissions()
+
+    def request_action_confirmation(self, tool_name: str, params: Dict[str, Any]) -> str:
+        """Create a short-lived, one-time confirmation challenge for a tool call."""
+        token = secrets.token_urlsafe(24)
+        fingerprint = hashlib.sha256(
+            json.dumps(params, sort_keys=True, default=str).encode("utf-8")
+        ).hexdigest()
+        self._pending_confirmations[token] = {
+            "tool_name": tool_name.lower(), "fingerprint": fingerprint,
+            "expires_at": time.time() + 300, "approved": False,
+        }
+        return token
+
+    def approve_action_confirmation(self, token: str) -> bool:
+        """Called only by an interactive user interface after explicit consent."""
+        challenge = self._pending_confirmations.get(token)
+        if not challenge or challenge["expires_at"] < time.time():
+            self._pending_confirmations.pop(token, None)
+            return False
+        challenge["approved"] = True
+        return True
+
+    def consume_action_confirmation(self, token: str, tool_name: str, params: Dict[str, Any]) -> bool:
+        challenge = self._pending_confirmations.pop(token, None)
+        if not challenge or not challenge["approved"] or challenge["expires_at"] < time.time():
+            return False
+        fingerprint = hashlib.sha256(
+            json.dumps(params, sort_keys=True, default=str).encode("utf-8")
+        ).hexdigest()
+        return challenge["tool_name"] == tool_name.lower() and challenge["fingerprint"] == fingerprint
 
 # Global singleton permission manager
 global_permission_manager = PermissionManager()

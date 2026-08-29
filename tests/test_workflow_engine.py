@@ -43,9 +43,9 @@ class TestWorkflowEngine(unittest.IsolatedAsyncioTestCase):
             shutil.rmtree(cls.test_db_dir, ignore_errors=True)
 
     async def asyncSetUp(self):
-        # Reset storage cleanly
-        if os.path.exists(self.db_path):
-            os.remove(self.db_path)
+        # Use a unique db path per test to avoid Windows file locking errors
+        import uuid
+        self.db_path = f"{self.test_db_dir}/test_wf_{uuid.uuid4().hex}.db"
         self.engine = WorkflowEngine.get_instance(db_path=self.db_path)
         self.engine.storage = WorkflowStorage(db_path=self.db_path)
         ToolRegistry.get_instance().discover_and_register_defaults()

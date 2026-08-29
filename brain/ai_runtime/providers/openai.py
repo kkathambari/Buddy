@@ -3,6 +3,7 @@ OpenAI Provider Adapter for DevBuddy 2.0 AI Runtime.
 """
 
 import asyncio
+import os
 from typing import List, Dict, Any, AsyncGenerator, Optional
 from .base_provider import BaseLLMProvider, ProviderResponse
 
@@ -19,12 +20,23 @@ class OpenAIProvider(BaseLLMProvider):
         max_tokens: int = 2048,
         tools_schema: Optional[List[Dict[str, Any]]] = None
     ) -> ProviderResponse:
-        # Simulate network latency and return formatted response if SDK/API not configured
-        await asyncio.sleep(0.01)
-        last_turn = messages[-1]["content"] if messages else ""
-        prompt_t = max(10, int(len(last_turn) / 4))
-        comp_t = max(20, int(len(last_turn) / 3))
-        text = f"[OpenAI ({model_id}) Completion] -> Processed: {last_turn[:120]}..."
+        try:
+            from openai import AsyncOpenAI
+        except ImportError as exc:
+            raise RuntimeError("openai is not installed.") from exc
+        api_key = self.api_key or os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise RuntimeError("OPENAI_API_KEY is not configured.")
+        response = await AsyncOpenAI(api_key=api_key).chat.completions.create(
+            model=model_id,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        text = response.choices[0].message.content or ""
+        usage = response.usage
+        prompt_t = getattr(usage, "prompt_tokens", 0) or 0
+        comp_t = getattr(usage, "completion_tokens", 0) or 0
 
         return ProviderResponse(
             text=text,
@@ -33,7 +45,7 @@ class OpenAIProvider(BaseLLMProvider):
             prompt_tokens=prompt_t,
             completion_tokens=comp_t,
             total_tokens=prompt_t + comp_t,
-            raw_payload={"status": "mock_or_sdk_success", "model": model_id}
+            raw_payload={"status": "success", "model": model_id}
         )
 
     async def stream(

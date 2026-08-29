@@ -5,6 +5,10 @@ from backend.routers import auth, sync, chat
 from core.logging import setup_logger
 from core.config import get_config
 from typing import List
+from backend.routers.auth import identity_service
+from backend.services.ownership import user_owns_companion
+from backend.configuration import validate_production_configuration
+import os
 
 logger = setup_logger("fastapi_main")
 
@@ -13,6 +17,10 @@ app = FastAPI(
     description="Clean Architecture REST & WebSockets Backend for DevBuddy (Forge AI)",
     version="1.0.0"
 )
+
+@app.on_event("startup")
+async def validate_configuration_on_startup():
+    validate_production_configuration()
 
 # Request Latency Middleware
 @app.middleware("http")
@@ -27,8 +35,8 @@ async def track_latency(request: Request, call_next):
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=[origin.strip() for origin in os.getenv("BUDDY_CORS_ORIGINS", "http://localhost:5173").split(",") if origin.strip()],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -65,13 +73,23 @@ manager = ConnectionManager()
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    authorization = websocket.headers.get("authorization", "")
+    companion_id = websocket.query_params.get("companion_id", "")
+    if not authorization.startswith("Bearer ") or not companion_id:
+        await websocket.close(code=1008, reason="Authentication and companion_id are required.")
+        return
+    user = identity_service.verify_token(authorization.removeprefix("Bearer ").strip())
+    if not user or not user_owns_companion(user.get("uid", ""), companion_id):
+        await websocket.close(code=1008, reason="Unauthorized companion access.")
+        return
     await manager.connect(websocket)
     try:
         while True:
             # Wait for any incoming messages from a connected client
             data = await websocket.receive_text()
-            # Broadcast the received message to all other connected clients
-            await manager.broadcast(data)
+            # Connection groups are intentionally omitted for now: do not echo
+            # arbitrary client messages across other users' companion channels.
+            await websocket.send_text(data)
     except WebSocketDisconnect:
         manager.disconnect(websocket)
     except Exception as e:

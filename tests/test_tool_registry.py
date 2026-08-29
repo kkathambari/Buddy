@@ -79,6 +79,8 @@ class MockSecurityPermManager:
         if level == "HIGH_RISK" and params.get("allow_high_risk") is not True:
             return False
         return True
+    def consume_action_confirmation(self, confirmation_id, tool_name, params) -> bool:
+        return params.get("allow_high_risk") is True
 
 
 class TestToolRegistryAndManager(unittest.IsolatedAsyncioTestCase):
@@ -113,6 +115,8 @@ class TestToolRegistryAndManager(unittest.IsolatedAsyncioTestCase):
 
     async def test_tool3_permission_checks(self):
         """Verify permission level checks with PermissionManager."""
+        import os
+        os.environ["BUDDY_ENABLE_TERMINAL_TOOL"] = "true"
         self.registry.register_tool(TerminalTool())
         self.manager.set_permission_manager(MockSecurityPermManager())
 
@@ -121,7 +125,7 @@ class TestToolRegistryAndManager(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(res_denied.status, "permission_denied")
 
         # Should succeed when authorized
-        res_allowed = await self.manager.execute_tool("terminal", {"command": "echo test", "allow_high_risk": True})
+        res_allowed = await self.manager.execute_tool("terminal", {"command": "echo test", "allow_high_risk": True, "confirmation_id": "valid"})
         self.assertEqual(res_allowed.status, "success")
         self.assertIn("test", res_allowed.output["stdout"])
 

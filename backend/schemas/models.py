@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import Any, Dict, Optional
 
 class LoginRequest(BaseModel):
@@ -13,11 +13,11 @@ class AuthResponse(BaseModel):
     expires_in: Optional[str] = None
 
 class LinkRequest(BaseModel):
-    soul_seed: str
+    soul_seed: str = Field(min_length=3, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
 
 class ChatRequest(BaseModel):
-    message: str
-    companion_id: str = "default_pet"
+    message: str = Field(min_length=1, max_length=8_000)
+    companion_id: str = Field(default="default_pet", min_length=3, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
 
 class ChatResponse(BaseModel):
     response: str

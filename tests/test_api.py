@@ -41,6 +41,14 @@ class TestAPI(unittest.TestCase):
         
         # Test client
         self.client = TestClient(app)
+        
+        # Mock auth and ownership for these general API tests
+        from backend.routers.auth import get_current_user
+        app.dependency_overrides[get_current_user] = lambda: {"uid": "test_user"}
+        
+        import unittest.mock
+        self.patcher1 = unittest.mock.patch('backend.routers.sync.user_owns_companion', return_value=True)
+        self.patcher1.start()
 
     def tearDown(self):
         # Restore profile
@@ -58,6 +66,9 @@ class TestAPI(unittest.TestCase):
                 os.remove(DB_PATH)
             except Exception:
                 pass
+        
+        app.dependency_overrides.clear()
+        self.patcher1.stop()
 
 
 

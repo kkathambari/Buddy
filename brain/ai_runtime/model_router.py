@@ -6,6 +6,7 @@ No agent is permitted to hardcode a provider or model name.
 """
 
 from typing import List, Dict, Any, Optional
+import os
 from dataclasses import dataclass, field
 
 
@@ -27,43 +28,9 @@ class ModelRouter:
         self.budget_limit_cents = budget_limit_cents
         self.current_spent_cents = 0.0
 
-        # Default routing tables
-        self.default_routes = {
-            "chat": {
-                "provider": "ollama",
-                "model_id": "mistral:latest",
-                "fallbacks": [
-                    {"provider": "gemini", "model_id": "gemini-2.5-flash"},
-                    {"provider": "openai", "model_id": "gpt-4o-mini"}
-                ]
-            },
-            "coding": {
-                "provider": "claude",
-                "model_id": "claude-3-5-sonnet-20241022",
-                "fallbacks": [
-                    {"provider": "gemini", "model_id": "gemini-2.5-pro"},
-                    {"provider": "openai", "model_id": "gpt-4o"},
-                    {"provider": "ollama", "model_id": "codellama:latest"}
-                ]
-            },
-            "reasoning": {
-                "provider": "openai",
-                "model_id": "gpt-4o",
-                "fallbacks": [
-                    {"provider": "gemini", "model_id": "gemini-2.5-pro"},
-                    {"provider": "claude", "model_id": "claude-3-5-sonnet-20241022"},
-                    {"provider": "ollama", "model_id": "mistral:latest"}
-                ]
-            },
-            "image": {
-                "provider": "gemini",
-                "model_id": "gemini-2.5-flash",
-                "fallbacks": [
-                    {"provider": "openai", "model_id": "gpt-4o"},
-                    {"provider": "claude", "model_id": "claude-3-5-sonnet-20241022"}
-                ]
-            }
-        }
+        model = os.getenv("BUDDY_OPENAI_MODEL", "gpt-4o-mini")
+        self.default_routes = {kind: {"provider": "openai", "model_id": model, "fallbacks": []}
+                               for kind in ("chat", "coding", "reasoning", "image")}
 
     def classify_task_type(self, prompt_text: str, has_images: bool = False, task_hint: Optional[str] = None) -> str:
         """Inspect prompt or task hints to classify into chat, coding, reasoning, or image."""
@@ -101,15 +68,8 @@ class ModelRouter:
         task_type = self.classify_task_type(prompt_text, has_images, task_hint)
         route_spec = self.default_routes.get(task_type, self.default_routes["chat"])
 
-        # Check if local fallback forced
         if force_local or not self.allow_cloud or self.current_spent_cents >= self.budget_limit_cents:
-            reason = f"Routed to local Ollama (Task: {task_type}, ForceLocal={force_local}, BudgetLimitReached={self.current_spent_cents >= self.budget_limit_cents})"
-            return RoutingDecision(
-                provider="ollama",
-                model_id="mistral:latest" if task_type != "coding" else "codellama:latest",
-                fallback_chain=[],
-                reasoning=reason
-            )
+            raise RuntimeError("OpenAI gateway is unavailable due to the configured runtime policy.")
 
         reason = f"Dynamic route selected for task type '{task_type}' within budget."
         return RoutingDecision(

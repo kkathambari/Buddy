@@ -220,6 +220,14 @@ class AndroidPetApp(App):
         self.append_chat(f"[color=aaaaaa]* {name} is ready! *[/color]\n")
 
     def load_all_frames(self):
+        # The hand-framed Boo portrait avoids the inconsistent crops produced by
+        # the legacy illustration collage used as a sprite sheet.
+        boo_path = os.path.join("assets", "boo.png")
+        if os.path.exists(boo_path):
+            self.use_textures = False
+            states = ("idle", "busy", "heart", "walk", "review", "dizzy", "celebrate", "sleep", "fall")
+            return {state: [boo_path] for state in states}
+
         sheet_path = os.path.join("assets", "sprite_sheet.png")
         if os.path.exists(sheet_path):
             try:

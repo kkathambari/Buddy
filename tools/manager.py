@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 from .base_tool import BaseTool, ToolMetadata, ToolHealthStatus
 from .registry import ToolRegistry
+from core.permissions import global_permission_manager
 
 
 @dataclass
@@ -32,7 +33,7 @@ class ToolManager:
 
     def __init__(self):
         self.registry = ToolRegistry.get_instance()
-        self.permission_manager = None  # Will link dynamically to security core or fallback mock
+        self.permission_manager = global_permission_manager
 
     @classmethod
     def get_instance(cls) -> "ToolManager":
@@ -46,14 +47,21 @@ class ToolManager:
 
     def check_permission(self, tool_name: str, permission_level: str, params: Dict[str, Any]) -> bool:
         """Verify execution authorization."""
+        params_for_confirmation = {k: v for k, v in params.items() if k != "confirmation_id"}
+        needs_confirmation = (
+            permission_level in {"HIGH_RISK", "ADMIN"}
+            or (tool_name.lower() == "filesystem" and params.get("operation") in {"write", "delete"})
+        )
+        if needs_confirmation:
+            confirmation_id = params.get("confirmation_id")
+            return bool(confirmation_id) and self.permission_manager.consume_action_confirmation(
+                confirmation_id, tool_name, params_for_confirmation
+            )
         if permission_level == "PUBLIC":
             return True
         if self.permission_manager and hasattr(self.permission_manager, "verify_tool_permission"):
             return self.permission_manager.verify_tool_permission(tool_name, permission_level, params)
-        # Default safety check if no admin override configured: disallow ADMIN level in unauthenticated mode
-        if permission_level == "ADMIN":
-            return params.get("admin_approved", False) is True
-        return True
+        return permission_level == "STANDARD"
 
     async def execute_tool(self, tool_name: str, params: Dict[str, Any]) -> ToolExecutionResult:
         """

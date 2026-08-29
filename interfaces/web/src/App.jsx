@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 
+const API_BASE_URL = import.meta.env.VITE_BUDDY_API_BASE_URL || 'http://localhost:8000';
+const COMPANION_ID = import.meta.env.VITE_BUDDY_COMPANION_ID || 'default_pet';
+
 export default function App() {
   const [companionName, setCompanionName] = useState("Daemon");
   const [species, setSpecies] = useState("Ghost");
@@ -52,11 +55,12 @@ export default function App() {
     setIsTyping(true);
 
     try {
-      // Direct call to local FastAPI backend if running
-      const response = await fetch("http://localhost:8000/chat", {
+      const token = localStorage.getItem('buddy_access_token');
+      if (!token) throw new Error("Authentication required");
+      const response = await fetch(`${API_BASE_URL}/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userMsg, companion_id: "default_pet" })
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ message: userMsg, companion_id: COMPANION_ID })
       });
       if (response.ok) {
         const data = await response.json();

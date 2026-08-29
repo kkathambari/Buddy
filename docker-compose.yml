@@ -1,0 +1,11 @@
+services:
+  buddy-api:
+    build: .
+    env_file: .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - buddy-data:/app/data
+    restart: unless-stopped
+volumes:
+  buddy-data:

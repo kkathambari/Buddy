@@ -31,9 +31,8 @@ class FirebaseIdentityService(BaseIdentityService):
 
     @property
     def api_key(self) -> str:
-        config = get_config()
-        # Fallback to a default key if none configured for demo/setup purposes
-        return config.get("firebase_api_key", "")
+        import os
+        return os.getenv("FIREBASE_API_KEY", "")
 
     def verify_token(self, token: str) -> Optional[Dict[str, Any]]:
         """
@@ -41,8 +40,8 @@ class FirebaseIdentityService(BaseIdentityService):
         Endpoint: https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=[API_KEY]
         """
         if not self.api_key:
-            logger.warning("Firebase API key missing. Returning mock verification for token.")
-            return {"uid": "mock_user_123", "email": "dev@forge.ai"}
+            logger.error("Firebase API key is missing; refusing token verification.")
+            return None
 
         url = f"https://identitytoolkit.googleapis.com/v1/accounts:lookup?key={self.api_key}"
         try:
@@ -69,12 +68,8 @@ class FirebaseIdentityService(BaseIdentityService):
         Endpoint: https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=[API_KEY]
         """
         if not self.api_key:
-            logger.warning("Firebase API key missing. Mocking success sign-in.")
-            return {
-                "token": "mock_jwt_token_abc123",
-                "uid": "mock_user_123",
-                "email": email
-            }
+            logger.error("Firebase API key is missing; refusing sign-in.")
+            return None
 
         url = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={self.api_key}"
         try:
