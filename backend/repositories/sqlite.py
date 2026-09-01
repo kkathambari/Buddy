@@ -98,6 +98,20 @@ def init_db():
         cursor.execute("INSERT OR IGNORE INTO chat_threads (id, companion_id, title, updated_at) VALUES (?, ?, ?, ?)", 
                        (sid, sid, "Original Conversation", time.time()))
 
+    # 7. Goals table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS goals (
+        id TEXT PRIMARY KEY,
+        companion_id TEXT,
+        title TEXT,
+        description TEXT,
+        status TEXT,
+        progress REAL DEFAULT 0.0,
+        created_at REAL,
+        updated_at REAL
+    )
+    """)
+
     conn.commit()
     conn.close()
 
@@ -326,3 +340,74 @@ class SqliteMemoryRepository(BaseMemoryRepository):
         except Exception as e:
             logger.error(f"SqliteMemoryRepository create_thread failed: {e}", exc_info=True)
             return ""
+
+class SqliteGoalRepository:
+    def get_goals(self, companion_id: str) -> List[Dict[str, Any]]:
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM goals WHERE companion_id = ? ORDER BY created_at DESC", (companion_id,))
+            rows = cursor.fetchall()
+            conn.close()
+            return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"SqliteGoalRepository get_goals failed: {e}", exc_info=True)
+            return []
+
+    def create_goal(self, data: Dict[str, Any]) -> str:
+        try:
+            import uuid
+            goal_id = str(uuid.uuid4())
+            conn = get_connection()
+            cursor = conn.cursor()
+            now = time.time()
+            cursor.execute("""
+            INSERT INTO goals (id, companion_id, title, description, status, progress, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (goal_id, data["companion_id"], data["title"], data.get("description", ""), data.get("status", "active"), data.get("progress", 0.0), now, now))
+            conn.commit()
+            conn.close()
+            return goal_id
+        except Exception as e:
+            logger.error(f"SqliteGoalRepository create_goal failed: {e}", exc_info=True)
+            return ""
+
+    def update_goal(self, goal_id: str, companion_id: str, data: Dict[str, Any]) -> bool:
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            updates = []
+            values = []
+            for k in ["title", "description", "status", "progress"]:
+                if k in data:
+                    updates.append(f"{k} = ?")
+                    values.append(data[k])
+            
+            if not updates:
+                return False
+                
+            updates.append("updated_at = ?")
+            values.extend([time.time(), goal_id, companion_id])
+            
+            query = f"UPDATE goals SET {', '.join(updates)} WHERE id = ? AND companion_id = ?"
+            cursor.execute(query, values)
+            updated = cursor.rowcount > 0
+            conn.commit()
+            conn.close()
+            return updated
+        except Exception as e:
+            logger.error(f"SqliteGoalRepository update_goal failed: {e}", exc_info=True)
+            return False
+
+    def delete_goal(self, goal_id: str, companion_id: str) -> bool:
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM goals WHERE id = ? AND companion_id = ?", (goal_id, companion_id))
+            deleted = cursor.rowcount > 0
+            conn.commit()
+            conn.close()
+            return deleted
+        except Exception as e:
+            logger.error(f"SqliteGoalRepository delete_goal failed: {e}", exc_info=True)
+            return False

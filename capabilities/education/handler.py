@@ -83,7 +83,7 @@ class EducationCapability(Capability):
                 rel = get_relationship(companion_id)
                 if rel.get("trust", 0.5) > 0.6:
                     if not is_cooldown_active("education_proactive_pdf"):
-                        proactive_queue.put("Looks like that chapter is fighting back.")
+                        proactive_queue[companion_id].put("Looks like that chapter is fighting back.")
                         update_cooldown("education_proactive_pdf")
                         logger.info("Queued proactive study PDF reminder from Education Capability.")
             except Exception as e:
@@ -105,7 +105,7 @@ Keep the suggestion short, calm, and slightly snarky (1-2 sentences).
 Daemon:
 """
                         response = AIGateway.generate_response(prompt)
-                        proactive_queue.put(response)
+                        proactive_queue[companion_id].put(response)
                         update_cooldown("education_proactive_quiz")
                         logger.info("Queued proactive study reminder from Education Capability.")
             except Exception as e:

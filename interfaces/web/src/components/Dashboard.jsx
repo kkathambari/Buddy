@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 export default function Dashboard({ user, companionId, API_BASE_URL, profile, stats, threads, onNavigate, onSelectThread }) {
   const [activity, setActivity] = useState([]);
   const [memories, setMemories] = useState([]);
+  const [goals, setGoals] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -10,13 +11,18 @@ export default function Dashboard({ user, companionId, API_BASE_URL, profile, st
       user.getIdToken().then(async token => {
         try {
           const headers = { Authorization: `Bearer ${token}` };
-          const [actRes, memRes] = await Promise.all([
+          const [actRes, memRes, goalsRes] = await Promise.all([
             fetch(`${API_BASE_URL}/api/activity?companion_id=${companionId}`, { headers }),
-            fetch(`${API_BASE_URL}/api/memories?companion_id=${companionId}`, { headers })
+            fetch(`${API_BASE_URL}/api/memories?companion_id=${companionId}`, { headers }),
+            fetch(`${API_BASE_URL}/api/goals?companion_id=${companionId}`, { headers })
           ]);
           
           if (actRes.ok) setActivity(await actRes.json());
           if (memRes.ok) setMemories(await memRes.json());
+          if (goalsRes.ok) {
+            const data = await goalsRes.json();
+            setGoals(data.goals || []);
+          }
         } catch (err) {
           console.error("Failed to load dashboard data:", err);
         } finally {
@@ -78,6 +84,35 @@ export default function Dashboard({ user, companionId, API_BASE_URL, profile, st
               <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px', background: 'rgba(0,0,0,0.2)', borderRadius: '8px' }}>
                 <span style={{ fontWeight: 500 }}>{act.title || act.type}</span>
                 <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{new Date(act.timestamp || act.hour).toLocaleString()}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Active Goals */}
+      <div className="glass" style={{ padding: '24px', gridColumn: '1 / -1' }}>
+        <h3 style={{ fontFamily: 'var(--font-display)', fontSize: '1.2rem', marginBottom: '16px' }}>Active Goals</h3>
+        {loading ? (
+          <div style={{ color: 'var(--text-secondary)' }}>Loading goals...</div>
+        ) : goals.length === 0 ? (
+          <div style={{ color: 'var(--text-secondary)', fontStyle: 'italic', padding: '20px', textAlign: 'center', background: 'rgba(0,0,0,0.2)', borderRadius: '8px' }}>Buddy has no active goals right now. Give them something to do!</div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '16px' }}>
+            {goals.map((g, i) => (
+              <div key={g.id || i} style={{ padding: '16px', background: 'rgba(0,0,0,0.4)', borderRadius: '12px', border: '1px solid var(--glass-border)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <span style={{ fontWeight: 600, color: 'white' }}>{g.title}</span>
+                  <span style={{ fontSize: '0.8rem', padding: '2px 8px', borderRadius: '12px', background: g.status === 'active' ? 'var(--primary-accent)' : 'rgba(255,255,255,0.1)' }}>{g.status}</span>
+                </div>
+                {g.description && <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '12px' }}>{g.description}</div>}
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '4px' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Progress</span>
+                  <span>{Math.round(g.progress)}%</span>
+                </div>
+                <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '3px' }}>
+                  <div style={{ width: `${g.progress}%`, height: '100%', background: 'var(--success)', borderRadius: '3px' }}></div>
+                </div>
               </div>
             ))}
           </div>

@@ -97,7 +97,7 @@ def confirm_action(payload: ConfirmActionRequest, current_user: dict = Depends(g
     require_companion_owner(payload.companion_id, current_user)
     
     import re
-    match = re.search(r'\[(OPEN|BROWSE):\s*(.+?)\]', payload.action_raw, flags=re.IGNORECASE)
+    match = re.search(r'\[(OPEN|BROWSE|TERMINAL|READ_FILE|WRITE_FILE|PLAN):\s*(.+?)\]', payload.action_raw, flags=re.IGNORECASE)
     if not match:
         raise HTTPException(status_code=400, detail="Invalid action format")
         
@@ -106,7 +106,7 @@ def confirm_action(payload: ConfirmActionRequest, current_user: dict = Depends(g
     params = {"target": target}
     
     from core.automation import execute_action
-    result = execute_action(tool_name, params, payload.token)
+    result = execute_action(tool_name, params, payload.token, payload.companion_id)
     
     if not result.get("success"):
         raise HTTPException(status_code=403, detail=result.get("error", "Action execution failed"))

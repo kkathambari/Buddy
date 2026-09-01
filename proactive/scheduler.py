@@ -6,7 +6,7 @@ from core.logging import setup_logger
 
 logger = setup_logger("proactive_scheduler")
 
-def schedule_reminder(name: str, delay_sec: float, prompt: str) -> threading.Timer:
+def schedule_reminder(name: str, delay_sec: float, prompt: str, companion_id: str = "default_pet") -> threading.Timer:
     """
     Schedules a proactive reminder.
     When the timer expires, it checks if trust level allows and generates/queues the response.
@@ -19,7 +19,7 @@ def schedule_reminder(name: str, delay_sec: float, prompt: str) -> threading.Tim
                 return
                 
             response = AIGateway.generate_response(prompt)
-            proactive_queue.put(response)
+            proactive_queue[companion_id].put(response)
             logger.info(f"Fired and queued scheduled reminder: {name}")
         except Exception as e:
             logger.error(f"Failed to generate scheduled reminder '{name}': {e}")

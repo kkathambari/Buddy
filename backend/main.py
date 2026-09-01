@@ -3,7 +3,7 @@ import asyncio
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from backend.routers import auth, sync, chat, dashboard, companions, memory
+from backend.routers import auth, sync, chat, dashboard, companions, memory, goals
 from core.logging import setup_logger
 from core.config import get_config
 from typing import List
@@ -80,6 +80,7 @@ app.include_router(sync.router)
 app.include_router(chat.router)
 app.include_router(dashboard.router)
 app.include_router(memory.router)
+app.include_router(goals.router)
 app.include_router(companions.router, prefix="/api")
 
 # WebSocket Connection Manager
@@ -136,11 +137,53 @@ async def websocket_endpoint(websocket: WebSocket):
         return
 
     try:
+        # Background task to send proactive messages
+        async def send_proactive():
+            from proactive.trigger import proactive_queue
+            while True:
+                try:
+                    if not proactive_queue[companion_id].empty():
+                        msg = proactive_queue[companion_id].get_nowait()
+                        
+                        # Save to db history
+                        from backend.repositories.factory import get_memory_repository
+                        mem_repo = get_memory_repository()
+                        history = mem_repo.get(companion_id) or []
+                        history.append({"sender": companion_id, "message": msg, "timestamp": time.time(), "is_proactive": True})
+                        mem_repo.save(companion_id, history)
+                        
+                        # Trigger local Desktop Notification using plyer
+                        try:
+                            from plyer import notification
+                            notification.notify(
+                                title="Buddy (Proactive)",
+                                message=msg,
+                                app_name="DevBuddy",
+                                timeout=10
+                            )
+                        except Exception as e:
+                            logger.error(f"Desktop notification failed: {e}")
+                        
+                        await websocket.send_json({
+                            "type": "proactive_message",
+                            "message": msg
+                        })
+                except Exception:
+                    pass
+                await asyncio.sleep(2)
+                
+        proactive_task = asyncio.create_task(send_proactive())
+        
         message_timestamps = []
         loop = asyncio.get_event_loop()
         while True:
             # Wait for any incoming messages from a connected client
             data = await websocket.receive_text()
+            
+            # Prevent OOM DoS
+            if len(data) > 5 * 1024 * 1024:
+                await websocket.close(code=1009, reason="Payload too large")
+                return
             
             # Simple in-memory token bucket for this connection (60 msgs/min)
             now = time.time()
@@ -159,6 +202,12 @@ async def websocket_endpoint(websocket: WebSocket):
 
             if msg_payload.get("type") == "chat":
                 user_input = msg_payload.get("message", "")
+                image_data = msg_payload.get("image", None)
+                
+                if image_data and not str(image_data).startswith("data:image/"):
+                    await websocket.send_text('{"type": "stream_error", "error": "Invalid image format."}')
+                    continue
+                    
                 thread_id = msg_payload.get("thread_id", companion_id)
                 
                 from backend.repositories.factory import get_companion_repository, get_memory_repository
@@ -186,7 +235,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     try:
                         from brain.conversation import stream_process_chat
                         full_res = ""
-                        for chunk in stream_process_chat(user_input, stats, energy, companion_id, user.get("uid")):
+                        for chunk in stream_process_chat(user_input, stats, energy, companion_id, user.get("uid"), image_data):
                             full_res += chunk
                             asyncio.run_coroutine_threadsafe(queue.put({"type": "stream_chunk", "chunk": chunk}), loop)
                         
@@ -198,13 +247,25 @@ async def websocket_endpoint(websocket: WebSocket):
                         from core.automation import parse_and_execute_actions, generate_action_token
                         _, action = parse_and_execute_actions(full_res)
                         action_token = None
+                        plan_details = None
+                        
                         if action:
-                            action_token = generate_action_token(action)
+                            import re
+                            if action.lower().startswith("[plan:"):
+                                match = re.search(r'\[PLAN:\s*(.+?)\]', action, flags=re.IGNORECASE)
+                                if match:
+                                    goal = match.group(1)
+                                    from brain.planner import global_planner
+                                    plan_obj = global_planner.create_plan(companion_id, goal)
+                                    plan_details = plan_obj.to_dict()
+                                    
+                            action_token = generate_action_token(action, companion_id)
                         
                         asyncio.run_coroutine_threadsafe(queue.put({
                             "type": "stream_complete", 
                             "action": action, 
-                            "token": action_token
+                            "token": action_token,
+                            "plan_details": plan_details
                         }), loop)
                     except Exception as e:
                         asyncio.run_coroutine_threadsafe(queue.put({"type": "stream_error", "error": str(e)}), loop)
@@ -226,9 +287,13 @@ async def websocket_endpoint(websocket: WebSocket):
                 await websocket.send_text(data)
     except WebSocketDisconnect:
         manager.disconnect(websocket)
+        if 'proactive_task' in locals():
+            proactive_task.cancel()
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
         manager.disconnect(websocket)
+        if 'proactive_task' in locals():
+            proactive_task.cancel()
 
 @app.get("/health")
 def health_check():

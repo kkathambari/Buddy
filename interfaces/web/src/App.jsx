@@ -8,16 +8,19 @@ import Settings from './components/Settings';
 const API_BASE_URL = import.meta.env.VITE_BUDDY_API_BASE_URL || 'http://localhost:8000';
 
 function ActionCard({ actionRaw, onConfirm }) {
-  // Parses [OPEN: xxx] or [BROWSE: yyy]
-  const match = actionRaw.match(/\[(OPEN|BROWSE):\s*(.+?)\]/i);
+  const match = actionRaw.match(/\[(OPEN|BROWSE|TERMINAL|READ_FILE|WRITE_FILE|PLAN):\s*(.+?)\]/i);
   if (!match) return null;
   const type = match[1].toUpperCase();
   const target = match[2];
   
-  const icon = type === 'BROWSE' ? '🌐' : '🖥️';
-  const actionText = type === 'BROWSE' ? `Open website: ${target}` : `Launch application: ${target}`;
-
-  return (
+  let icon = '🖥️';
+  let actionText = `System Action: ${target}`;
+  if (type === 'BROWSE') { icon = '🌐'; actionText = `Open website: ${target}`; }
+  else if (type === 'OPEN') { icon = '🚀'; actionText = `Launch application: ${target}`; }
+  else if (type === 'TERMINAL') { icon = '💻'; actionText = `Run command: ${target}`; }
+  else if (type === 'READ_FILE') { icon = '📄'; actionText = `Read file: ${target}`; }
+  else if (type === 'WRITE_FILE') { icon = '✍️'; actionText = `Write file: ${target}`; }
+  else if (type === 'PLAN') { return null; } // Handled by PlanCard
     <div style={{ marginTop: '12px', background: 'rgba(0,0,0,0.4)', borderRadius: '12px', border: '1px solid var(--glass-border)', padding: '16px', overflow: 'hidden' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
         <span style={{ fontSize: '1.2rem' }}>{icon}</span>
@@ -29,6 +32,33 @@ function ActionCard({ actionRaw, onConfirm }) {
       <div style={{ display: 'flex', gap: '8px' }}>
         <button onClick={() => onConfirm(true)} style={{ background: 'var(--success)', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, flex: 1 }}>Allow</button>
         <button onClick={() => onConfirm(false)} style={{ background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--glass-border)', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', flex: 1 }}>Deny</button>
+      </div>
+    </div>
+  );
+}
+
+function PlanCard({ planDetails, actionRaw, onConfirm }) {
+  if (!planDetails) return null;
+  
+  return (
+    <div style={{ marginTop: '12px', background: 'rgba(0,0,0,0.6)', borderRadius: '12px', border: '1px solid var(--primary-accent)', padding: '16px', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+        <span style={{ fontSize: '1.2rem' }}>📋</span>
+        <span style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>Proposed Workflow</span>
+      </div>
+      <div style={{ marginBottom: '16px', fontSize: '0.95rem' }}>
+        <div style={{ fontWeight: 'bold', marginBottom: '8px', color: 'white' }}>Goal: {planDetails.goal}</div>
+        <ul style={{ paddingLeft: '20px', margin: 0, color: 'var(--text-secondary)' }}>
+          {Object.values(planDetails.tasks).map(t => (
+             <li key={t.task_id} style={{ marginBottom: '4px' }}>
+                <strong style={{ color: 'white' }}>{t.title}</strong> (Agent: {t.agent})
+             </li>
+          ))}
+        </ul>
+      </div>
+      <div style={{ display: 'flex', gap: '8px' }}>
+        <button onClick={() => onConfirm(true)} style={{ background: 'var(--success)', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, flex: 1 }}>Approve Plan</button>
+        <button onClick={() => onConfirm(false)} style={{ background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--glass-border)', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', flex: 1 }}>Reject</button>
       </div>
     </div>
   );
@@ -51,6 +81,7 @@ export default function App() {
   const [chatMessage, setChatMessage] = useState("");
   const [chatHistory, setChatHistory] = useState([]);
   const [messageState, setMessageState] = useState('idle'); // 'idle', 'sending', 'streaming', 'failed'
+  const [imageFile, setImageFile] = useState(null);
   
   const [threads, setThreads] = useState([]);
   const [activeThreadId, setActiveThreadId] = useState(null);
@@ -169,15 +200,15 @@ export default function App() {
               setMessageState('streaming');
               streamingMessageRef.current += data.chunk;
               
-              // Frontend Action Parser: intercept [OPEN:...] and strip from UI
+              // Frontend Action Parser: intercept new agentic tags and strip from UI
               let displayStr = streamingMessageRef.current;
-              const match = displayStr.match(/\[(OPEN|BROWSE):\s*.+?\]/i);
+              const match = displayStr.match(/\[(OPEN|BROWSE|TERMINAL|READ_FILE|WRITE_FILE|PLAN):\s*.+?\]/i);
               if (match) {
                 actionBufferRef.current = match[0];
                 displayStr = displayStr.replace(match[0], '');
               } else if (displayStr.includes('[')) {
                  // Partially typed tag? Let's aggressively strip incomplete tags if they look like an action
-                 if (displayStr.match(/\[(O|OP|OPE|B|BR|BRO|BROW|BROWS)/i)) {
+                 if (displayStr.match(/\[(O|OP|OPE|B|BR|BRO|BROW|BROWS|T|TE|TER|R|RE|W|WR|P|PL)/i)) {
                     // Hide the typing bracket entirely until resolved
                     const idx = displayStr.lastIndexOf('[');
                     displayStr = displayStr.substring(0, idx);
@@ -203,6 +234,9 @@ export default function App() {
                   if (data.token) {
                     newHist[newHist.length-1].actionToken = data.token;
                   }
+                  if (data.plan_details) {
+                    newHist[newHist.length-1].planDetails = data.plan_details;
+                  }
                 }
                 return newHist;
               });
@@ -211,6 +245,8 @@ export default function App() {
             } else if (data.type === "stream_error") {
               setMessageState('failed');
               setChatHistory(prev => [...prev, { sender: "pet", text: "[System: Connection error occurred.]" }]);
+            } else if (data.type === "proactive_message") {
+              setChatHistory(prev => [...prev, { sender: "pet", text: data.message }]);
             }
           } catch(e) {
             console.error("WS Parse error", e);
@@ -270,14 +306,31 @@ export default function App() {
     setView('login');
   };
 
+  const handleImageChange = (e) => {
+    if (e.target.files && e.target.files[0]) {
+      setImageFile(e.target.files[0]);
+    }
+  };
+
   const sendChat = async (e) => {
     e.preventDefault();
-    if (!chatMessage.trim() || !activeThreadId) return;
+    if (!chatMessage.trim() && !imageFile || !activeThreadId) return;
     
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       const userMsg = chatMessage.trim();
-      setChatHistory(prev => [...prev, { sender: "user", text: userMsg }]);
+      let base64Image = null;
+      
+      if (imageFile) {
+         const reader = new FileReader();
+         reader.readAsDataURL(imageFile);
+         await new Promise((resolve) => {
+           reader.onload = () => { base64Image = reader.result; resolve(); };
+         });
+      }
+      
+      setChatHistory(prev => [...prev, { sender: "user", text: userMsg, image: base64Image }]);
       setChatMessage("");
+      setImageFile(null);
       setMessageState('sending');
       streamingMessageRef.current = "";
       actionBufferRef.current = null;
@@ -285,6 +338,7 @@ export default function App() {
       wsRef.current.send(JSON.stringify({ 
         type: "chat", 
         message: userMsg, 
+        image: base64Image,
         thread_id: activeThreadId 
       }));
       setProfile(prev => ({...prev, bond: prev.bond + 1, energy: Math.max(0, prev.energy - 1.5)}));
@@ -531,13 +585,23 @@ export default function App() {
                   fontSize: '0.95rem',
                   lineHeight: '1.4'
                 }}>
+                  {msg.image && (
+                    <div style={{ marginBottom: '8px' }}>
+                      <img src={msg.image} alt="User Upload" style={{ maxWidth: '200px', borderRadius: '8px' }} />
+                    </div>
+                  )}
                   {msg.text}
                 </div>
                 
                 {/* Action Card Rendering */}
-                {msg.sender === 'pet' && msg.actionRaw && !msg.actionResult && (
+                {msg.sender === 'pet' && msg.actionRaw && !msg.planDetails && !msg.actionResult && (
                   <ActionCard actionRaw={msg.actionRaw} onConfirm={(allowed) => handleActionConfirm(allowed, i)} />
                 )}
+                {/* Plan Card Rendering */}
+                {msg.sender === 'pet' && msg.planDetails && !msg.actionResult && (
+                  <PlanCard planDetails={msg.planDetails} actionRaw={msg.actionRaw} onConfirm={(allowed) => handleActionConfirm(allowed, i)} />
+                )}
+                
                 {msg.sender === 'pet' && msg.actionResult && (
                   <div style={{ marginTop: '8px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
                     ↳ {msg.actionResult}
@@ -553,7 +617,21 @@ export default function App() {
             )}
           </div>
 
-          <form onSubmit={sendChat} style={{ display: 'flex', gap: '12px' }}>
+            {imageFile && (
+              <div style={{ position: 'relative', width: '48px', height: '48px', borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--primary-accent)' }}>
+                <img src={URL.createObjectURL(imageFile)} alt="preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <button type="button" onClick={() => setImageFile(null)} style={{ position: 'absolute', top: 0, right: 0, background: 'rgba(0,0,0,0.6)', color: 'white', border: 'none', cursor: 'pointer', fontSize: '0.7rem', padding: '2px 4px' }}>x</button>
+              </div>
+            )}
+            
+            <input type="file" id="imageUpload" accept="image/*" style={{ display: 'none' }} onChange={handleImageChange} />
+            <label htmlFor="imageUpload" style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: 'rgba(255,255,255,0.1)', border: '1px solid var(--glass-border)',
+              borderRadius: '12px', padding: '0 16px', cursor: 'pointer',
+              color: 'var(--text-secondary)'
+            }}>📷</label>
+
             <input 
               type="text" 
               value={chatMessage} 

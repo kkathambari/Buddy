@@ -1,4 +1,5 @@
 import queue
+from collections import defaultdict
 from ai.gateway.broker import AIGateway
 from events.bus import global_bus, Event
 from relationship.manager import get_relationship
@@ -7,8 +8,8 @@ from core.logging import setup_logger
 
 logger = setup_logger("proactive_trigger")
 
-# Unified queue for proactive messages
-proactive_queue = queue.Queue()
+# Unified queue for proactive messages, isolated per companion
+proactive_queue = defaultdict(queue.Queue)
 
 def register_proactive_subscribers():
     """Subscribes proactive handlers to the global event bus."""
@@ -38,7 +39,8 @@ Daemon:
 """
     try:
         response = AIGateway.generate_response(prompt)
-        proactive_queue.put(response)
+        companion_id = payload.get("companion_id", "default_pet")
+        proactive_queue[companion_id].put(response)
         update_cooldown("user_struggling")
         logger.info("Queued proactive struggle comment.")
     except Exception as e:
@@ -67,7 +69,8 @@ Daemon:
 """
     try:
         response = AIGateway.generate_response(prompt)
-        proactive_queue.put(response)
+        companion_id = payload.get("companion_id", "default_pet")
+        proactive_queue[companion_id].put(response)
         update_cooldown("active_category_changed")
         logger.info("Queued proactive category comment.")
     except Exception as e:

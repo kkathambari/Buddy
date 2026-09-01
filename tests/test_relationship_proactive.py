@@ -37,9 +37,9 @@ class TestRelationshipProactive(unittest.TestCase):
                 pass
         _pending_feedback.clear()
         # Reset queues
-        while not proactive_queue.empty():
+        while not proactive_queue['test_companion'].empty():
             try:
-                proactive_queue.get_nowait()
+                proactive_queue['test_companion'].get_nowait()
             except Exception:
                 pass
         # Reset cooldowns
@@ -149,27 +149,27 @@ class TestRelationshipProactive(unittest.TestCase):
         mock_generate.return_value = "Mocked Proactive Comment"
         
         # Test struggle trigger
-        event = Event("user_struggling", "activity_hooks", {"delete_ratio": 0.5})
+        event = Event("user_struggling", "activity_hooks", {"delete_ratio": 0.5, "companion_id": "test_companion"})
         handle_user_struggling(event)
-        self.assertFalse(proactive_queue.empty())
-        msg = proactive_queue.get_nowait()
+        self.assertFalse(proactive_queue['test_companion'].empty())
+        msg = proactive_queue['test_companion'].get_nowait()
         self.assertEqual(msg, "Mocked Proactive Comment")
 
         # Test category switch trigger
-        event_cat = Event("active_category_changed", "activity_hooks", {"new_category": "coding", "title": "test"})
+        event_cat = Event("active_category_changed", "activity_hooks", {"new_category": "coding", "title": "test", "companion_id": "test_companion"})
         handle_category_changed(event_cat)
-        self.assertFalse(proactive_queue.empty())
-        msg = proactive_queue.get_nowait()
+        self.assertFalse(proactive_queue['test_companion'].empty())
+        msg = proactive_queue['test_companion'].get_nowait()
         self.assertEqual(msg, "Mocked Proactive Comment")
 
         # Test Scheduler
-        timer = schedule_reminder("test_alert", 0.01, "Test Alert Prompt")
+        timer = schedule_reminder("test_alert", 0.01, "Test Alert Prompt", "test_companion")
         # Wait up to 2 seconds for the background timer thread to execute
         start_time = time.time()
-        while proactive_queue.empty() and (time.time() - start_time) < 2.0:
+        while proactive_queue['test_companion'].empty() and (time.time() - start_time) < 2.0:
             time.sleep(0.01)
-        self.assertFalse(proactive_queue.empty(), "Scheduler reminder was not queued!")
-        msg_timer = proactive_queue.get_nowait()
+        self.assertFalse(proactive_queue['test_companion'].empty(), "Scheduler reminder was not queued!")
+        msg_timer = proactive_queue['test_companion'].get_nowait()
         self.assertEqual(msg_timer, "Mocked Proactive Comment")
 
     def test_sentiment_evaluation(self):
@@ -181,6 +181,14 @@ class TestRelationshipProactive(unittest.TestCase):
     @patch('ai.gateway.broker.AIGateway.generate_response')
     def test_conversation_reflection_intercept(self, mock_generate):
         mock_generate.return_value = "Normal response"
+        mock_generate.return_value = "Normal response"
+        
+        # Bypass onboarding experience
+        from memory.user_profile import update_profile_field
+        update_profile_field("name", "TestUser")
+        
+        from brain.experience import ExperienceEngine
+        ExperienceEngine.clear_state()
         
         # Setup finished session in EducationCapability
         from capabilities.education.handler import EducationCapability

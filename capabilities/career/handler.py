@@ -41,7 +41,7 @@ Keep the suggestion short, teasing, and supportive (1-2 sentences).
 Daemon:
 """
                         response = AIGateway.generate_response(prompt)
-                        proactive_queue.put(response)
+                        proactive_queue[companion_id].put(response)
                         update_cooldown("career_proactive_ats")
                         logger.info("Queued proactive career reminder from Career Capability.")
             except Exception as e:

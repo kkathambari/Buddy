@@ -110,7 +110,7 @@ class PermissionManager:
         self.permissions_cache.clear()
         self.save_permissions()
 
-    def request_action_confirmation(self, tool_name: str, params: Dict[str, Any]) -> str:
+    def request_action_confirmation(self, tool_name: str, params: Dict[str, Any], companion_id: str = None) -> str:
         """Create a short-lived, one-time confirmation challenge for a tool call."""
         token = secrets.token_urlsafe(24)
         fingerprint = hashlib.sha256(
@@ -119,6 +119,7 @@ class PermissionManager:
         self._pending_confirmations[token] = {
             "tool_name": tool_name.lower(), "fingerprint": fingerprint,
             "expires_at": time.time() + 300, "approved": False,
+            "companion_id": companion_id
         }
         return token
 
@@ -131,9 +132,11 @@ class PermissionManager:
         challenge["approved"] = True
         return True
 
-    def consume_action_confirmation(self, token: str, tool_name: str, params: Dict[str, Any]) -> bool:
+    def consume_action_confirmation(self, token: str, tool_name: str, params: Dict[str, Any], companion_id: str = None) -> bool:
         challenge = self._pending_confirmations.pop(token, None)
         if not challenge or not challenge["approved"] or challenge["expires_at"] < time.time():
+            return False
+        if challenge.get("companion_id") and challenge.get("companion_id") != companion_id:
             return False
         fingerprint = hashlib.sha256(
             json.dumps(params, sort_keys=True, default=str).encode("utf-8")

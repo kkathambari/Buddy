@@ -35,14 +35,30 @@ def store_long_term_memory(companion_id: str, fact: str) -> None:
 
 def get_companion_memories(companion_id: str) -> list[dict]:
     url = f"{_get_db_url()}companion_memory/{companion_id}.json{_get_auth_query()}"
+    memories = []
     try:
         resp = requests.get(url, timeout=5)
         if resp.status_code == 200 and resp.json():
             data = resp.json()
-            return list(data.values())
+            memories = list(data.values())
     except Exception as e:
         logger.error(f"Failed to fetch memories from Firebase: {e}")
-    return []
+        
+    # Link active goals into memory context
+    try:
+        from backend.repositories.factory import get_goal_repository
+        repo = get_goal_repository()
+        active_goals = [g for g in repo.get_goals(companion_id) if g.get("status") == "active"]
+        for g in active_goals:
+            memories.append({
+                "id": f"goal_{g['id']}",
+                "fact": f"Current Active Goal: {g['title']} - {g['description']} (Progress: {g['progress']}%)",
+                "created_at": g['created_at']
+            })
+    except Exception as e:
+        logger.error(f"Failed to fetch goals for memory context: {e}")
+        
+    return memories
 
 def edit_memory(companion_id: str, memory_id: str, new_fact: str) -> None:
     url = f"{_get_db_url()}companion_memory/{companion_id}/{memory_id}.json{_get_auth_query()}"

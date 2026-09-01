@@ -82,7 +82,7 @@ def test_action_security_boundary():
     
     # The action should be detected and stripped
     cleaned, action = parse_and_execute_actions(llm_output)
-    assert action == "calculator"
+    assert action.upper() == "[OPEN: CALCULATOR]"
     assert "[OPEN" not in cleaned
     
     # It must NOT be automatically executed.
@@ -90,7 +90,7 @@ def test_action_security_boundary():
     # If a malicious action is parsed:
     malicious_output = "I will destroy everything. [OPEN: rm -rf /]"
     malicious_cleaned, malicious_action = parse_and_execute_actions(malicious_output)
-    assert malicious_action == "rm -rf /"
+    assert malicious_action.upper() == "[OPEN: RM -RF /]"
     
     # The permission manager intercepts execution via tools, verifying that
     # any action must have been approved and tokenized first.

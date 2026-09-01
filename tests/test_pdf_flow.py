@@ -35,11 +35,7 @@ class TestPDFFlow(unittest.TestCase):
         init_db()
         
         # Reset proactive queue
-        while not proactive_queue.empty():
-            try:
-                proactive_queue.get_nowait()
-            except Exception:
-                break
+        proactive_queue.clear()
                 
         # Clear pdf state
         pdf_state["active_pdf_title"] = ""
@@ -108,11 +104,11 @@ class TestPDFFlow(unittest.TestCase):
         duration = time.time() - pdf_state["opened_time"]
         self.assertTrue(duration >= 0.1) # tests scale threshold down to 0.1s
         
-        proactive_queue.put("Looks like that chapter is fighting back.")
+        proactive_queue['test_companion'].put("Looks like that chapter is fighting back.")
         
         # Assert that the proactive queue received the exact phrase
-        self.assertFalse(proactive_queue.empty())
-        self.assertEqual(proactive_queue.get_nowait(), "Looks like that chapter is fighting back.")
+        self.assertFalse(proactive_queue['test_companion'].empty())
+        self.assertEqual(proactive_queue['test_companion'].get_nowait(), "Looks like that chapter is fighting back.")
 
     def test_pdf_concepts_extraction(self):
         # Verify concepts are successfully matched based on keywords in mock file content

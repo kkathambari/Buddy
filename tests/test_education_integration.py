@@ -38,9 +38,9 @@ class TestEducationIntegration(unittest.TestCase):
                 pass
                 
         # Clear proactive queue
-        while not proactive_queue.empty():
+        while not proactive_queue['test_companion'].empty():
             try:
-                proactive_queue.get_nowait()
+                proactive_queue['test_companion'].get_nowait()
             except Exception:
                 pass
                 
@@ -122,7 +122,7 @@ class TestEducationIntegration(unittest.TestCase):
         cap.observe(context)
         
         # Queue should be empty since trust <= 0.7
-        self.assertTrue(proactive_queue.empty())
+        self.assertTrue(proactive_queue['test_edu_comp'].empty())
         
         # Scenario 2: High trust (> 0.7)
         update_relationship("test_edu_comp", 0.5, 0, "Set trust high") # trust becomes 0.8
@@ -130,8 +130,8 @@ class TestEducationIntegration(unittest.TestCase):
         cap.observe(context)
         
         # Queue should contain the proactive study suggestion
-        self.assertFalse(proactive_queue.empty())
-        msg = proactive_queue.get_nowait()
+        self.assertFalse(proactive_queue['test_edu_comp'].empty())
+        msg = proactive_queue['test_edu_comp'].get_nowait()
         self.assertEqual(msg, "Viva suggestion comment")
 
     def test_lifecycle_hooks(self):
