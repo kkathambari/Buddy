@@ -34,3 +34,13 @@ class BaseMemoryRepository(BaseRepository, ABC):
     def get_recent_history(self, session_id: str, limit: int = 20) -> list:
         """Retrieves the last N records from a chat log."""
         pass
+
+    @abstractmethod
+    def get_threads(self, companion_id: str) -> list:
+        """Retrieves a list of all chat threads for a companion."""
+        pass
+        
+    @abstractmethod
+    def create_thread(self, companion_id: str, title: str) -> str:
+        """Creates a new chat thread for a companion and returns the thread_id."""
+        pass

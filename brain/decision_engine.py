@@ -96,6 +96,28 @@ class DecisionEngine:
         # Default Fallback to LLM Reasoner for COMPANIONSHIP and fuzzy matches
         logger.info("Executing core Cognitive Reasoner loop.")
         return CognitiveReasoner.reason(legacy_intent, stats, energy)
+        
+    def stream_execute(self, intent: Intent, stats: Dict[str, Any], energy: float):
+        """Streaming counterpart to execute(). Routes to capability or yields chunks from LLM."""
+        category = intent.category
+        
+        legacy_intent = {
+            "category": "capability_execution" if category in [IntentCategory.LEARNING, IntentCategory.CAREER] else "general_chat",
+            "capability": "education" if category == IntentCategory.LEARNING else ("career" if category == IntentCategory.CAREER else None),
+            "tone": intent.entities.get("tone", {"emotion": "neutral", "intensity": "low", "hidden": False}),
+            "emotion": intent.entities.get("emotion", "neutral"),
+            "raw_text": intent.raw_text,
+            "entities": intent.entities
+        }
+        
+        # If routed to capabilities/rules, we just yield the final sync response as a single chunk
+        if category in [IntentCategory.LEARNING, IntentCategory.CAREER, IntentCategory.PRODUCTIVITY_QUERY, IntentCategory.SYSTEM_COMMAND, IntentCategory.GREETING]:
+            yield self.execute(intent, stats, energy)
+            return
+            
+        # Fallback to LLM Reasoner
+        for chunk in CognitiveReasoner.stream_reason(legacy_intent, stats, energy):
+            yield chunk
 
 # Global singleton Decision Engine instance
 global_decision_engine = DecisionEngine()

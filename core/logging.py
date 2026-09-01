@@ -10,13 +10,16 @@ LOG_FORMAT = "%(asctime)s - %(levelname)s - [%(name)s] - %(message)s"
 class JsonFormatter(logging.Formatter):
     """Formats log records as structured JSON objects."""
     def format(self, record):
+        from asgi_correlation_id.context import correlation_id
+        
         log_data = {
             "timestamp": self.formatTime(record, self.datefmt),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
             "filename": record.filename,
-            "line_number": record.lineno
+            "line_number": record.lineno,
+            "request_id": correlation_id.get() if correlation_id.get() else None
         }
         if record.exc_info:
             log_data["exception"] = self.formatException(record.exc_info)

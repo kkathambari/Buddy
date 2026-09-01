@@ -149,6 +149,8 @@ class TestAPI(unittest.TestCase):
                 "companion_id": companion_id
             }
             response = self.client.post("/chat", json=chat_payload)
+            if response.status_code != 200:
+                print("500 ERROR DETAILS:", response.json())
             self.assertEqual(response.status_code, 200)
             data = response.json()
             self.assertIn("Hello developer", data["response"])

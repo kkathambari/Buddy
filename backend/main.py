@@ -1,7 +1,9 @@
 import time
+import asyncio
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from backend.routers import auth, sync, chat
+from backend.routers import auth, sync, chat, dashboard, companions, memory
 from core.logging import setup_logger
 from core.config import get_config
 from typing import List
@@ -18,9 +20,33 @@ app = FastAPI(
     version="1.0.0"
 )
 
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from backend.limiter import limiter
+
 @app.on_event("startup")
 async def validate_configuration_on_startup():
     validate_production_configuration()
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+from core.exceptions import GatewayException
+@app.exception_handler(GatewayException)
+async def gateway_exception_handler(request: Request, exc: GatewayException):
+    logger.error(f"Gateway Error: {exc}")
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "Service unavailable: AI Provider is currently offline. Please try again later."}
+    )
+
+# Request Size Limit Middleware
+@app.middleware("http")
+async def limit_request_size(request: Request, call_next):
+    content_length = request.headers.get("content-length")
+    if content_length and int(content_length) > 1_000_000: # 1MB limit
+        return JSONResponse(status_code=413, content={"detail": "Payload too large"})
+    return await call_next(request)
 
 # Request Latency Middleware
 @app.middleware("http")
@@ -41,10 +67,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from asgi_correlation_id import CorrelationIdMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
+
+app.add_middleware(CorrelationIdMiddleware)
+
+Instrumentator().instrument(app).expose(app, include_in_schema=False, should_gzip=True)
+
 # Include sub-routers
 app.include_router(auth.router)
 app.include_router(sync.router)
 app.include_router(chat.router)
+app.include_router(dashboard.router)
+app.include_router(memory.router)
+app.include_router(companions.router, prefix="/api")
 
 # WebSocket Connection Manager
 class ConnectionManager:
@@ -73,23 +109,121 @@ manager = ConnectionManager()
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    authorization = websocket.headers.get("authorization", "")
-    companion_id = websocket.query_params.get("companion_id", "")
-    if not authorization.startswith("Bearer ") or not companion_id:
-        await websocket.close(code=1008, reason="Authentication and companion_id are required.")
-        return
-    user = identity_service.verify_token(authorization.removeprefix("Bearer ").strip())
-    if not user or not user_owns_companion(user.get("uid", ""), companion_id):
-        await websocket.close(code=1008, reason="Unauthorized companion access.")
-        return
-    await manager.connect(websocket)
+    await websocket.accept()
+    
     try:
+        # Wait for the first message to be the auth payload
+        auth_msg_raw = await asyncio.wait_for(websocket.receive_text(), timeout=5.0)
+        import json
+        auth_msg = json.loads(auth_msg_raw)
+        
+        if auth_msg.get("type") != "auth" or not auth_msg.get("token") or not auth_msg.get("companion_id"):
+            await websocket.close(code=1008, reason="Valid auth payload required as first message.")
+            return
+            
+        token = auth_msg["token"]
+        companion_id = auth_msg["companion_id"]
+        
+        user = identity_service.verify_token(token)
+        if not user or not user_owns_companion(user.get("uid", ""), companion_id):
+            await websocket.close(code=1008, reason="Unauthorized companion access.")
+            return
+            
+        manager.active_connections.append(websocket)
+    except Exception as e:
+        logger.error(f"WebSocket auth failed: {e}")
+        await websocket.close(code=1008, reason="WebSocket connection or authentication failed.")
+        return
+
+    try:
+        message_timestamps = []
+        loop = asyncio.get_event_loop()
         while True:
             # Wait for any incoming messages from a connected client
             data = await websocket.receive_text()
-            # Connection groups are intentionally omitted for now: do not echo
-            # arbitrary client messages across other users' companion channels.
-            await websocket.send_text(data)
+            
+            # Simple in-memory token bucket for this connection (60 msgs/min)
+            now = time.time()
+            message_timestamps = [ts for ts in message_timestamps if now - ts < 60]
+            if len(message_timestamps) >= 60:
+                await websocket.send_text('{"type": "stream_error", "error": "Rate limit exceeded."}')
+                continue
+            message_timestamps.append(now)
+            
+            import json
+            try:
+                msg_payload = json.loads(data)
+            except Exception:
+                await websocket.send_text(data)
+                continue
+
+            if msg_payload.get("type") == "chat":
+                user_input = msg_payload.get("message", "")
+                thread_id = msg_payload.get("thread_id", companion_id)
+                
+                from backend.repositories.factory import get_companion_repository, get_memory_repository
+                comp_repo = get_companion_repository()
+                mem_repo = get_memory_repository()
+                
+                if thread_id != companion_id:
+                    threads = mem_repo.get_threads(companion_id)
+                    if thread_id not in [t["id"] for t in threads]:
+                        await websocket.send_text('{"type": "stream_error", "error": "Unauthorized thread access."}')
+                        continue
+                
+                soul = comp_repo.get(companion_id) or {}
+                stats = soul.get("stats", {})
+                energy = soul.get("energy", 100)
+                
+                # Retrieve and append user message
+                history = mem_repo.get(thread_id) or []
+                history.append({"sender": "user", "message": user_input, "timestamp": time.time()})
+                mem_repo.save(thread_id, history)
+                
+                queue = asyncio.Queue()
+                
+                def run_generator():
+                    try:
+                        from brain.conversation import stream_process_chat
+                        full_res = ""
+                        for chunk in stream_process_chat(user_input, stats, energy, companion_id, user.get("uid")):
+                            full_res += chunk
+                            asyncio.run_coroutine_threadsafe(queue.put({"type": "stream_chunk", "chunk": chunk}), loop)
+                        
+                        # Append and save bot message with the latest history from DB
+                        latest_history = mem_repo.get(thread_id) or []
+                        latest_history.append({"sender": companion_id, "message": full_res, "timestamp": time.time()})
+                        mem_repo.save(thread_id, latest_history)
+                        
+                        from core.automation import parse_and_execute_actions, generate_action_token
+                        _, action = parse_and_execute_actions(full_res)
+                        action_token = None
+                        if action:
+                            action_token = generate_action_token(action)
+                        
+                        asyncio.run_coroutine_threadsafe(queue.put({
+                            "type": "stream_complete", 
+                            "action": action, 
+                            "token": action_token
+                        }), loop)
+                    except Exception as e:
+                        asyncio.run_coroutine_threadsafe(queue.put({"type": "stream_error", "error": str(e)}), loop)
+
+                import threading
+                threading.Thread(target=run_generator, daemon=True).start()
+                
+                while True:
+                    item = await queue.get()
+                    if item["type"] == "stream_complete":
+                        await websocket.send_json(item)
+                        break
+                    elif item["type"] == "stream_error":
+                        await websocket.send_json(item)
+                        break
+                    else:
+                        await websocket.send_json(item)
+            else:
+                await websocket.send_text(data)
     except WebSocketDisconnect:
         manager.disconnect(websocket)
     except Exception as e:

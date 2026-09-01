@@ -189,14 +189,14 @@ class TestRelationshipProactive(unittest.TestCase):
         global_decision_engine.register_capability("education", edu_cap)
 
         # Call process_chat when capability just completed
-        res = process_chat("my answer", {"snark": 50}, 100, "test_companion")
+        res, _ = process_chat("my answer", {"snark": 50}, 100, "test_companion")
         self.assertIn("Did I help you get that working?", res)
         # Should populate _pending_feedback
         self.assertIn("test_companion", _pending_feedback)
         self.assertEqual(_pending_feedback["test_companion"]["capability"], "education")
 
         # Call process_chat to verify positive feedback intercept
-        res_fb = process_chat("yes, it worked!", {"snark": 50}, 100, "test_companion")
+        res_fb, _ = process_chat("yes, it worked!", {"snark": 50}, 100, "test_companion")
         self.assertIn("I'm glad to hear that", res_fb)
         # Pending feedback should be cleared
         self.assertNotIn("test_companion", _pending_feedback)
@@ -209,11 +209,11 @@ class TestRelationshipProactive(unittest.TestCase):
         # Test negative feedback intercept
         # Setup finished session again
         edu_cap._active_sessions["test_companion"] = {"concept": "Python", "stage": "complete"}
-        res2 = process_chat("another answer", {"snark": 50}, 100, "test_companion")
+        res2, _ = process_chat("another answer", {"snark": 50}, 100, "test_companion")
         self.assertIn("Did I help you get that working?", res2)
         
         # Call process_chat to verify negative feedback intercept
-        res_fb2 = process_chat("no, still broken", {"snark": 50}, 100, "test_companion")
+        res_fb2, _ = process_chat("no, still broken", {"snark": 50}, 100, "test_companion")
         self.assertIn("I appreciate the feedback", res_fb2)
         
         # Verify relationship metrics decayed

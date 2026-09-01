@@ -2,10 +2,45 @@ services:
   buddy-api:
     build: .
     env_file: .env
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/buddy
+      - APP_ENV=test
     ports:
       - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
     volumes:
       - buddy-data:/app/data
     restart: unless-stopped
+    
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=buddy
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # We use Firebase emulator via node image for local staging
+  firebase-emulator:
+    image: node:18-alpine
+    command: sh -c "npm install -g firebase-tools && firebase emulators:start --project demo-buddy"
+    ports:
+      - "9099:9099" # Auth
+      - "4000:4000" # Emulator UI
+    volumes:
+      - ./firebase:/app/firebase
+    working_dir: /app
+
 volumes:
   buddy-data:
+  postgres-data:

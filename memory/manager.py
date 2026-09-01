@@ -29,7 +29,7 @@ def run_memory_aging_sweep() -> None:
     except Exception as e:
         logger.error(f"Memory aging sweep failed: {e}")
 
-def evaluate_and_commit(user_input: str, response: str, emotion: str = "neutral") -> None:
+def evaluate_and_commit(user_input: str, response: str, emotion: str = "neutral", user_uid: str = None) -> None:
     """
     Master commit method called at the end of each conversational turn.
     Updates working memory, extracts long-term facts, compresses logs, and sweeps aging.
@@ -44,7 +44,7 @@ def evaluate_and_commit(user_input: str, response: str, emotion: str = "neutral"
         
     # 2. Evaluate Importance and Extract structured metrics (runs asynchronously if score >= 0.7)
     try:
-        evaluate_and_extract(user_input)
+        evaluate_and_extract(user_input, user_uid)
     except Exception as e:
         logger.error(f"Failed to evaluate and extract facts: {e}")
         

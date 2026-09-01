@@ -35,7 +35,7 @@ _pending_feedback = {}
 
 def ask_llm(prompt):
     try:
-        return AIGateway.generate_response(prompt)
+        return AIGateway.generate_response(prompt, max_tokens=150)
     except Exception as e:
         logger_err = f"AI Gateway call failed: {e}"
         print(logger_err)
@@ -74,24 +74,54 @@ def build_prompt(user_input, stats, energy):
     adapt = adapt_to_user(tone)
 
     memories = retrieve_memory(user_input)
-    memory_str = "\n".join(f"- {m}" for m in memories) if memories else "No directly relevant past memories."
+    
+    firebase_memories = []
+    if companion_id:
+        try:
+            from backend.repositories.memory import get_companion_memories
+            raw_mems = get_companion_memories(companion_id)
+            firebase_memories = [m["fact"] for m in raw_mems]
+        except Exception:
+            pass
+            
+    combined_memories = memories + firebase_memories
+    memory_str = "\n".join(f"- {m}" for m in combined_memories) if combined_memories else "No directly relevant past memories."
     
     prod_insight = analyze_productivity()
     stats_str = "\n".join(f"- {k}: {v}/100" for k, v in stats.items()) if stats else "- No specific stats."
     
-    prompt = f"""
-You are Daemon.
+    friendly = stats.get("Friendly", 50)
+    playful = stats.get("Playful", 50)
+    formal = stats.get("Formal", 10)
+    sarcastic = stats.get("Sarcastic", 20)
+    energetic = stats.get("Energetic", 50)
 
-A male ghost companion.
+    tone_instruction = "You are a helpful ghost companion."
+    if sarcastic > 60:
+        tone_instruction += " You are extremely sarcastic and snarky. Use dry humor."
+    elif sarcastic > 40:
+        tone_instruction += " You have a playful, slightly sarcastic edge."
+        
+    if formal > 70:
+        tone_instruction += " Speak very formally, like a butler or an old English scholar."
+    elif friendly > 70:
+        tone_instruction += " Speak with immense warmth and affection, using very friendly language."
+        
+    if energetic > 70:
+        tone_instruction += " Be highly energetic and use exclamation marks frequently!"
+    elif energetic < 30:
+        tone_instruction += " Speak softly, calmly, in short, low-energy sentences."
+
+    prompt = f"""
+You are Buddy.
+
+A virtual companion.
 
 Productivity & Habit Analysis:
 {prod_insight}
 
 Relevant Past Memories from User:
 {memory_str}
-
-Your Core Personality Stats:
-{stats_str}
 
 **SYSTEM AUTOMATION POWERS:**
 You have the ability to control the user's computer. If the user asks you to open an app or a website, you MUST include one of the following tags anywhere in your response:
@@ -102,16 +132,8 @@ The system will automatically execute these tags and hide them from the user.
 Conversation Context:
 {context}
 
-Use these stats to subtly influence your tone. If CHAOS is high, be slightly more unpredictable. If SNARK is high, be playfully sarcastic. If WISDOM is high, be calm and profound.
-
-You are:
-- calm, observant, emotionally intelligent
-- slightly teasing
-- protective without being over controlling
-- quietly affectionate
-
-You don’t change personality drastically, but your stats guide your flavor.
-You stay consistent.
+Personality & Tone Instructions:
+{tone_instruction}
 
 You understand the user without needing everything explained.
 
@@ -121,7 +143,7 @@ Keep responses:
 - grounded
 
 User: {user_input}
-Daemon:
+Buddy:
 """
     return prompt
 
@@ -148,7 +170,7 @@ def ghost_presence(companion_id: str = "default_pet"):
 
     return None
 
-def process_chat(user_input, stats, energy, companion_id: str = "default_pet"):
+def process_chat(user_input, stats, energy, companion_id: str = "default_pet", user_uid: str = None):
     from brain.tone import analyze_tone
     from brain.reflection import SelfReflection
     
@@ -165,7 +187,7 @@ def process_chat(user_input, stats, energy, companion_id: str = "default_pet"):
         except Exception:
             pass
         typing_effect(experience_response)
-        return experience_response
+        return experience_response, None
 
     # 1. Check for pending feedback reflection intercept
     if companion_id in _pending_feedback:
@@ -198,7 +220,7 @@ def process_chat(user_input, stats, energy, companion_id: str = "default_pet"):
             
         final_response = "I'm glad to hear that! Let's keep making progress." if is_positive else "I appreciate the feedback. I will adjust and try to be more helpful."
         typing_effect(final_response)
-        return final_response
+        return final_response, None
 
     # 2. Standard dialogue execution
     intent = detect_intent(user_input)
@@ -226,7 +248,7 @@ def process_chat(user_input, stats, energy, companion_id: str = "default_pet"):
 
     raw_response = global_decision_engine.execute(intent, adjusted_stats, energy)
 
-    cleaned_response = parse_and_execute_actions(raw_response)
+    cleaned_response, action = parse_and_execute_actions(raw_response)
 
     if cleaned_response == "[ANIMATION: confused]":
         final = cleaned_response
@@ -260,7 +282,7 @@ def process_chat(user_input, stats, energy, companion_id: str = "default_pet"):
     # Asynchronously evaluate and commit facts to Memory Manager
     try:
         from memory.manager import evaluate_and_commit
-        evaluate_and_commit(user_input, final, tone["emotion"])
+        evaluate_and_commit(user_input, final, tone["emotion"], user_uid)
     except Exception:
         pass
 
@@ -273,4 +295,81 @@ def process_chat(user_input, stats, energy, companion_id: str = "default_pet"):
 
     typing_effect(final)
 
-    return final
+    return final, action
+
+def stream_process_chat(user_input, stats, energy, companion_id: str = "default_pet", user_uid: str = None):
+    from brain.tone import analyze_tone
+    from brain.reflection import SelfReflection
+    
+    # 0. Check for Experience Engine intercept
+    from brain.experience import ExperienceEngine
+    experience_response = ExperienceEngine.intercept(user_input, companion_id)
+    if experience_response is not None:
+        try:
+            from core.analytics import ProductAnalytics
+            ProductAnalytics.track_event("experience_chat_turn", {
+                "companion_id": companion_id,
+                "experience_name": ExperienceEngine.load_state().get("active_experience", "unknown")
+            })
+        except Exception:
+            pass
+        yield experience_response
+        return
+
+    # 1. Check for pending feedback reflection intercept
+    if companion_id in _pending_feedback:
+        fb_info = _pending_feedback.pop(companion_id)
+        capability_name = fb_info["capability"]
+        is_positive = SelfReflection.evaluate_feedback(user_input)
+        
+        trust_change = 0.1 if is_positive else -0.05
+        bond_change = 5 if is_positive else -2
+        rel = update_relationship(companion_id, trust_change, bond_change, f"Reflection on {capability_name}")
+        
+        final_response = "I'm glad to hear that! Let's keep making progress." if is_positive else "I appreciate the feedback. I will adjust and try to be more helpful."
+        yield final_response
+        return
+
+    # 2. Standard dialogue execution
+    intent = detect_intent(user_input)
+    tone = analyze_tone(user_input)
+    log_emotion(tone["emotion"])
+    
+    rel = get_relationship(companion_id)
+    adjusted_stats = adjust_personality_modifiers(stats, rel["trust"], rel["bond"])
+
+    if intent.category.value == "chitchat":
+        from brain.intent_types import IntentCategory
+        intent.category = IntentCategory.COMPANIONSHIP
+
+    full_response = ""
+    for chunk in global_decision_engine.stream_execute(intent, adjusted_stats, energy):
+        full_response += chunk
+        yield chunk
+
+    # Post processing
+    completed_capability = None
+    education_cap = global_decision_engine._capabilities.get("education")
+    if education_cap and hasattr(education_cap, "_active_sessions"):
+        session = education_cap._active_sessions.get(companion_id)
+        if session and session.get("stage") == "complete":
+            completed_capability = "education"
+            education_cap._active_sessions.pop(companion_id, None)
+            
+    career_cap = global_decision_engine._capabilities.get("career")
+    if career_cap and hasattr(career_cap, "_active_career_sessions"):
+        session = career_cap._active_career_sessions.get(companion_id)
+        if session and session.get("stage") == "complete":
+            completed_capability = "career"
+            career_cap._active_career_sessions.pop(companion_id, None)
+            
+    if completed_capability:
+        _pending_feedback[companion_id] = {"capability": completed_capability}
+        yield "\nDid I help you get that working?"
+
+    # Save to memory
+    try:
+        from memory.manager import evaluate_and_commit
+        evaluate_and_commit(user_input, full_response, tone["emotion"], user_uid)
+    except Exception:
+        pass

@@ -18,12 +18,18 @@ class FirebaseRepositoryMixin:
             url += "/"
         return url
 
+    @property
+    def auth_query(self) -> str:
+        config = get_config()
+        secret = config.get("firebase_secret", "")
+        return f"?auth={secret}" if secret else ""
+
 class FirebaseCompanionRepository(BaseCompanionRepository, FirebaseRepositoryMixin):
     """Concrete Firebase Realtime Database implementation for Companion Soul data."""
 
     def get(self, id: str) -> Optional[Dict[str, Any]]:
         hashed_id = hash_seed(id)
-        url = f"{self.db_url}pets/{hashed_id}.json"
+        url = f"{self.db_url}pets/{hashed_id}.json{self.auth_query}"
         try:
             logger.info(f"Fetching companion soul from Firebase: {hashed_id}")
             response = requests.get(url, timeout=5)
@@ -38,7 +44,7 @@ class FirebaseCompanionRepository(BaseCompanionRepository, FirebaseRepositoryMix
 
     def save(self, id: str, data: Dict[str, Any]) -> bool:
         hashed_id = hash_seed(id)
-        url = f"{self.db_url}pets/{hashed_id}.json"
+        url = f"{self.db_url}pets/{hashed_id}.json{self.auth_query}"
         try:
             logger.info(f"Saving companion soul to Firebase: {hashed_id}")
             response = requests.put(url, json=data, timeout=5)
@@ -49,7 +55,7 @@ class FirebaseCompanionRepository(BaseCompanionRepository, FirebaseRepositoryMix
 
     def delete(self, id: str) -> bool:
         hashed_id = hash_seed(id)
-        url = f"{self.db_url}pets/{hashed_id}.json"
+        url = f"{self.db_url}pets/{hashed_id}.json{self.auth_query}"
         try:
             logger.info(f"Deleting companion soul from Firebase: {hashed_id}")
             response = requests.delete(url, timeout=5)
@@ -69,7 +75,7 @@ class FirebaseMemoryRepository(BaseMemoryRepository, FirebaseRepositoryMixin):
 
     def get(self, id: str) -> Optional[Dict[str, Any]]:
         hashed_id = hash_seed(id)
-        url = f"{self.db_url}memories/{hashed_id}.json"
+        url = f"{self.db_url}memories/{hashed_id}.json{self.auth_query}"
         try:
             response = requests.get(url, timeout=5)
             if response.status_code == 200:
@@ -80,7 +86,7 @@ class FirebaseMemoryRepository(BaseMemoryRepository, FirebaseRepositoryMixin):
 
     def save(self, id: str, data: Dict[str, Any]) -> bool:
         hashed_id = hash_seed(id)
-        url = f"{self.db_url}memories/{hashed_id}.json"
+        url = f"{self.db_url}memories/{hashed_id}.json{self.auth_query}"
         try:
             response = requests.put(url, json=data, timeout=5)
             return response.status_code == 200
@@ -89,7 +95,7 @@ class FirebaseMemoryRepository(BaseMemoryRepository, FirebaseRepositoryMixin):
 
     def delete(self, id: str) -> bool:
         hashed_id = hash_seed(id)
-        url = f"{self.db_url}memories/{hashed_id}.json"
+        url = f"{self.db_url}memories/{hashed_id}.json{self.auth_query}"
         try:
             response = requests.delete(url, timeout=5)
             return response.status_code == 200
@@ -101,3 +107,12 @@ class FirebaseMemoryRepository(BaseMemoryRepository, FirebaseRepositoryMixin):
         if isinstance(history, list):
             return history[-limit:]
         return []
+
+    def get_threads(self, companion_id: str) -> list:
+        # Mock thread implementation for Firebase
+        import time
+        return [{"id": companion_id, "title": "Main Conversation", "updated_at": time.time()}]
+
+    def create_thread(self, companion_id: str, title: str) -> str:
+        # Mock for Firebase, just returns companion_id
+        return companion_id

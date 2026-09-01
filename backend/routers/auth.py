@@ -18,15 +18,20 @@ def get_current_user(authorization: str = Header(None)):
         raise HTTPException(status_code=401, detail="Invalid or expired authentication token.")
     return user
 
+from fastapi import Request
+from backend.limiter import limiter
+
 @router.post("/login", response_model=AuthResponse)
-def login(payload: LoginRequest):
+@limiter.limit("5/minute")
+def login(request: Request, payload: LoginRequest):
     auth_data = identity_service.authenticate_user(payload.email, payload.password)
     if not auth_data:
         raise HTTPException(status_code=400, detail="Invalid email or password.")
     return auth_data
 
 @router.post("/link")
-def link_seed(payload: LinkRequest, current_user: dict = Depends(get_current_user)):
+@limiter.limit("10/minute")
+def link_seed(request: Request, payload: LinkRequest, current_user: dict = Depends(get_current_user)):
     user_uid = current_user.get("uid")
     if not claim_companion(user_uid, payload.soul_seed):
         raise HTTPException(status_code=403, detail="This companion is already linked to another user.")

@@ -24,8 +24,12 @@ def get_companion_state(companion_id: str, current_user: dict = Depends(get_curr
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch state: {e}")
 
+from fastapi import Request
+from backend.limiter import limiter
+
 @router.put("/{companion_id}")
-def sync_companion_state(companion_id: str, data: Dict[str, Any], current_user: dict = Depends(get_current_user)):
+@limiter.limit("20/minute")
+def sync_companion_state(request: Request, companion_id: str, data: Dict[str, Any], current_user: dict = Depends(get_current_user)):
     require_companion_owner(companion_id, current_user)
     companion_repo = get_companion_repository()
     try:

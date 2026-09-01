@@ -81,6 +81,23 @@ def init_db():
     )
     """)
     
+    # 6. Chat threads table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS chat_threads (
+        id TEXT PRIMARY KEY,
+        companion_id TEXT,
+        title TEXT,
+        updated_at REAL
+    )
+    """)
+    
+    # Migrate existing conversations to default thread if not exists
+    cursor.execute("SELECT DISTINCT session_id FROM conversation")
+    for row in cursor.fetchall():
+        sid = row["session_id"]
+        cursor.execute("INSERT OR IGNORE INTO chat_threads (id, companion_id, title, updated_at) VALUES (?, ?, ?, ?)", 
+                       (sid, sid, "Original Conversation", time.time()))
+
     conn.commit()
     conn.close()
 
@@ -276,3 +293,36 @@ class SqliteMemoryRepository(BaseMemoryRepository):
         except Exception as e:
             logger.error(f"SqliteMemoryRepository get_recent_history failed: {e}", exc_info=True)
             return []
+
+    def get_threads(self, companion_id: str) -> list:
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+            SELECT id, title, updated_at FROM chat_threads 
+            WHERE companion_id = ? 
+            ORDER BY updated_at DESC
+            """, (companion_id,))
+            rows = cursor.fetchall()
+            conn.close()
+            return [{"id": row["id"], "title": row["title"], "updated_at": row["updated_at"]} for row in rows]
+        except Exception as e:
+            logger.error(f"SqliteMemoryRepository get_threads failed: {e}", exc_info=True)
+            return []
+
+    def create_thread(self, companion_id: str, title: str) -> str:
+        try:
+            import uuid
+            thread_id = str(uuid.uuid4())
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+            INSERT INTO chat_threads (id, companion_id, title, updated_at)
+            VALUES (?, ?, ?, ?)
+            """, (thread_id, companion_id, title, time.time()))
+            conn.commit()
+            conn.close()
+            return thread_id
+        except Exception as e:
+            logger.error(f"SqliteMemoryRepository create_thread failed: {e}", exc_info=True)
+            return ""

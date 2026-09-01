@@ -33,52 +33,9 @@ class CognitiveReasoner:
     """Core reasoning layer of DevBuddy Brain, determining system context, memories, and prompts."""
 
     @staticmethod
-    def reason(intent: Dict[str, Any], stats: Dict[str, Any], energy: float) -> str:
-        text = intent["raw_text"]
-        logger.info(f"Reasoner evaluating context for: '{text[:40]}...'")
-
-        # Update emotion matrix and XP progression
-        global_achievements.add_xp(15)
-        text_lower = text.lower()
-        if any(w in text_lower for w in ["thanks", "good", "great", "awesome"]):
-            global_emotion.update_emotional_state("compliment")
-        elif any(w in text_lower for w in ["wrong", "bad", "fix", "fail"]):
-            global_emotion.update_emotional_state("critique")
-
-        # Load short-term history context
-        from memory.working_memory import get_recent_context
-        chat_context = get_recent_context()
-
-        # Load structured user profile
-        profile_str = "No user profile details loaded yet."
-        try:
-            from memory.user_profile import load_profile
-            import json
-            profile = load_profile()
-            profile_str = json.dumps(profile, indent=2)
-        except Exception:
-            pass
-
-        # Let Attention Engine select focus keywords and retrieve limits
-        from brain.attention import AttentionEngine
-        attention_state = AttentionEngine.determine_attention(text, chat_context)
-        focus_keywords = attention_state["focus_keywords"]
-        memory_limit = attention_state["memory_limit"]
-        logger.info(f"Attention focus: '{attention_state['primary_focus']}' with level {attention_state['attention_level']}. Keywords: {focus_keywords}")
-
-        # Retrieve relevant semantic memories based on attention keywords
-        from memory.retriever import retrieve_relevant_facts
-        semantic_memories = []
-        for kw in focus_keywords:
-            semantic_memories.extend(retrieve_relevant_facts(kw))
-        # Deduplicate and limit
-        semantic_memories = list(dict.fromkeys(semantic_memories))[:memory_limit]
-        memory_str = "\n".join(f"- {m}" for m in semantic_memories) if semantic_memories else "No directly relevant past memories."
-
-        # Compile statistics
-        stats_str = "\n".join(f"- {k}: {v}/100" for k, v in stats.items()) if stats else "- No specific stats."
-
+    def reason(intent: Dict[str, Any], stats: Dict[str, Any], energy: float):
         # Check for active plan and execute verification/reflection
+        text = intent.get("raw_text", "")
         from brain.planner import global_planner
         companion_id = intent.get("companion_id", "default_companion")
         active_plan = global_planner.get_plan(companion_id)
@@ -137,8 +94,81 @@ class CognitiveReasoner:
 
         # Build prompt
         import json
-        prompt = f"""
-You are Daemon, a male ghost companion.
+        prompt = CognitiveReasoner._build_prompt(intent, stats, energy)
+
+        try:
+            return AIGateway.generate_response(prompt)
+        except Exception as e:
+            logger.error(f"Reasoning LLM call failed: {e}", exc_info=True)
+            import random
+            if random.random() < 0.3:
+                return "[ANIMATION: confused]"
+            return "The cognitive gate is fuzzy. Let's try that again."
+
+    @staticmethod
+    def stream_reason(intent: Dict[str, Any], stats: Dict[str, Any], energy: float):
+        # We can reuse the reasoner context building logic by extracting it,
+        # but for simplicity we'll generate the prompt and then stream it.
+        # However, we'd need to duplicate the prompt building unless we refactor.
+        # Let's refactor the prompt building into a classmethod.
+        prompt = CognitiveReasoner._build_prompt(intent, stats, energy)
+        try:
+            for chunk in AIGateway.stream_response(prompt):
+                yield chunk
+        except Exception as e:
+            logger.error(f"Reasoning LLM stream failed: {e}", exc_info=True)
+            yield "[Connection error. The cognitive gate is fuzzy.]"
+
+    @staticmethod
+    def _build_prompt(intent: Dict[str, Any], stats: Dict[str, Any], energy: float) -> str:
+        text = intent["raw_text"]
+        
+        # We duplicate the side-effects here (emotion update) because _build_prompt is called by both
+        global_achievements.add_xp(15)
+        text_lower = text.lower()
+        if any(w in text_lower for w in ["thanks", "good", "great", "awesome"]):
+            global_emotion.update_emotional_state("compliment")
+        elif any(w in text_lower for w in ["wrong", "bad", "fix", "fail"]):
+            global_emotion.update_emotional_state("critique")
+            
+        from memory.working_memory import get_recent_context
+        chat_context = get_recent_context()
+        
+        profile_str = "No user profile details loaded yet."
+        try:
+            from memory.user_profile import load_profile
+            import json
+            profile_str = json.dumps(load_profile(), indent=2)
+        except Exception:
+            pass
+
+        from brain.attention import AttentionEngine
+        attention_state = AttentionEngine.determine_attention(text, chat_context)
+        focus_keywords = attention_state["focus_keywords"]
+        memory_limit = attention_state["memory_limit"]
+
+        from memory.retriever import retrieve_relevant_facts
+        semantic_memories = []
+        for kw in focus_keywords:
+            semantic_memories.extend(retrieve_relevant_facts(kw))
+        semantic_memories = list(dict.fromkeys(semantic_memories))[:memory_limit]
+        memory_str = "\\n".join(f"- {m}" for m in semantic_memories) if semantic_memories else "No directly relevant past memories."
+
+        stats_str = "\\n".join(f"- {k}: {v}/100" for k, v in stats.items()) if stats else "- No specific stats."
+
+        from brain.planner import global_planner
+        companion_id = intent.get("companion_id", "default_companion")
+        active_plan = global_planner.get_plan(companion_id)
+        plan_context = ""
+        
+        if active_plan:
+            plan_context += f"\\nActive Goal: {active_plan.goal}\\nPlan Progress:\\n"
+            for tid, t in active_plan.tasks.items():
+                plan_context += f"- [{t.status.upper()}] {t.title} (Agent: {t.agent})\\n"
+
+        import json
+        return f"""
+You are Daemon, a virtual companion.
 Your current status: Energy: {energy}/100.
 Your stats:
 {stats_str}
@@ -146,13 +176,8 @@ Your stats:
 Your Emotional State:
 {json.dumps(global_emotion.to_dict(), indent=2)}
 
-Your Progression Status:
-Level: {global_achievements.level} (XP: {global_achievements.xp}/{global_achievements.get_xp_threshold()})
-Achievements: {", ".join(global_achievements.achievements) if global_achievements.achievements else "None"}
-
 Active Plan Context:
 {plan_context if plan_context else "No active plan."}
-
 
 User Profile details:
 {profile_str}
@@ -168,14 +193,11 @@ Recent Conversation History:
 {chat_context}
 
 Respond as Daemon. Keep answers short, natural, slightly teasing, and emotionally intelligent.
+**SYSTEM AUTOMATION POWERS:**
+You have the ability to control the user's computer. If the user asks you to open an app or a website, you MUST include one of the following tags anywhere in your response:
+- To open an app: `[OPEN: app_name]` (e.g. `[OPEN: notepad]`, `[OPEN: chrome]`)
+- To open a website: `[BROWSE: url]` (e.g. `[BROWSE: youtube.com]`)
+The system will automatically extract these tags for approval.
 User: {text}
 Daemon:
 """
-        try:
-            return AIGateway.generate_response(prompt)
-        except Exception as e:
-            logger.error(f"Reasoning LLM call failed: {e}", exc_info=True)
-            import random
-            if random.random() < 0.3:
-                return "[ANIMATION: confused]"
-            return "The cognitive gate is fuzzy. Let's try that again."

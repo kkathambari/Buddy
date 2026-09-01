@@ -31,7 +31,7 @@ Return ONLY a float number between 0.0 and 1.0. Do not include any explanation.
         pass
     return 0.5 # Default fallback
 
-def _async_extraction_job(chat_input: str) -> None:
+def _async_extraction_job(chat_input: str, user_uid: str = None) -> None:
     logger.info(f"Running extractors for: '{chat_input[:40]}...'")
     try:
         extract_profile(chat_input)
@@ -39,15 +39,18 @@ def _async_extraction_job(chat_input: str) -> None:
         extract_career(chat_input)
         extract_projects(chat_input)
         extract_preferences(chat_input)
+        if user_uid:
+            from memory.extractors.facts import extract_facts
+            extract_facts(chat_input, user_uid)
     except Exception as e:
         logger.error(f"Error during async memory extraction: {e}")
 
-def evaluate_and_extract(chat_input: str) -> float:
+def evaluate_and_extract(chat_input: str, user_uid: str = None) -> float:
     """Evaluates the input's importance score and runs extractors asynchronously if high."""
     score = get_importance_score(chat_input)
     logger.info(f"Evaluated input importance score: {score}")
     
     if score >= 0.7:
-        threading.Thread(target=_async_extraction_job, args=(chat_input,), daemon=True).start()
+        threading.Thread(target=_async_extraction_job, args=(chat_input, user_uid), daemon=True).start()
         
     return score
