@@ -21,9 +21,22 @@ def add_dialog_turn(user: str, bot: str, emotion: str) -> None:
     })
     save_working_memory(memory)
 
-def get_recent_context(turns: int = 5) -> str:
+def estimate_tokens(text: str) -> int:
+    return len(text) // 4
+
+def get_recent_context(max_tokens: int = 2000) -> str:
     memory = load_working_memory()
     context = ""
-    for m in memory[-turns:]:
-        context += f"User: {m['user']}\nBuddy: {m['bot']}\n"
-    return context
+    current_tokens = 0
+    
+    # Iterate backwards to keep the most recent messages
+    lines = []
+    for m in reversed(memory):
+        line = f"User: {m['user']}\nBuddy: {m['bot']}\n"
+        tokens = estimate_tokens(line)
+        if current_tokens + tokens > max_tokens:
+            break
+        lines.insert(0, line)
+        current_tokens += tokens
+        
+    return "".join(lines)

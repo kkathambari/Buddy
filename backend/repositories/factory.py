@@ -1,5 +1,5 @@
 from core.config import get_config
-from backend.repositories.sqlite import SqliteCompanionRepository, SqliteMemoryRepository, SqliteGoalRepository
+from backend.repositories.sqlite import SqliteCompanionRepository, SqliteMemoryRepository, SqliteGoalRepository, SqlitePlannerRepository, SqliteScheduleRepository
 from backend.repositories.firebase import FirebaseCompanionRepository, FirebaseMemoryRepository
 
 def get_companion_repository():
@@ -20,3 +20,11 @@ def get_goal_repository():
     """Returns the configured goal repository implementation."""
     # Only sqlite for now
     return SqliteGoalRepository()
+
+def get_planner_repository():
+    """Returns the configured planner repository implementation."""
+    return SqlitePlannerRepository()
+
+def get_schedule_repository():
+    """Returns the configured schedule repository implementation."""
+    return SqliteScheduleRepository()

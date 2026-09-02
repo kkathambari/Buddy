@@ -48,10 +48,10 @@ class CognitiveReasoner:
             for task in running_tasks:
                 verification_needed = task.verification.lower()
                 if any(k in text.lower() for k in ["done", "pass", "complete", "compiled", "yes"]) or (verification_needed and verification_needed in text.lower()):
-                    active_plan.mark_task_status(task.task_id, "completed", "Verified successfully via user interaction.")
+                    global_planner.update_task_status(companion_id, task.task_id, "completed", "Verified successfully via user interaction.")
                     logger.info(f"Verified and completed task '{task.task_id}' based on user input.")
                 elif any(k in text.lower() for k in ["fail", "error", "broken", "no"]):
-                    active_plan.mark_task_status(task.task_id, "pending")
+                    global_planner.update_task_status(companion_id, task.task_id, "pending")
                     retried_task_ids.add(task.task_id)
                     plan_context += f"\n[RETRACT: Task '{task.title}' failed verification. Automatically retrying and resetting status to pending.]"
                     logger.warning(f"Task '{task.task_id}' failed verification. Resetting to pending.")
@@ -60,7 +60,7 @@ class CognitiveReasoner:
             executable_tasks = [t for t in active_plan.get_executable_tasks() if t.task_id not in retried_task_ids]
             if executable_tasks:
                 next_task = executable_tasks[0]
-                active_plan.mark_task_status(next_task.task_id, "running")
+                global_planner.update_task_status(companion_id, next_task.task_id, "running")
                 
                 # Dynamic Routing: Get the corresponding specialized agent and run it
                 agent = AGENTS_MAP.get(next_task.agent)
@@ -71,20 +71,20 @@ class CognitiveReasoner:
                         global_runtime.register_agent(next_task.agent, agent, {"type": next_task.agent})
                         
                     # Define a coroutine function wrapper to run in the background
-                    async def execute_and_update(task_node, plan_ref):
+                    async def execute_and_update(task_node, plan_ref, planner, comp_id):
                         try:
                             result = await agent.execute_task(task_node)
-                            plan_ref.mark_task_status(task_node.task_id, "completed", result)
+                            planner.update_task_status(comp_id, task_node.task_id, "completed", result)
                         except Exception as err:
                             logger.error(f"Error executing agent task {task_node.task_id}: {err}")
-                            plan_ref.mark_task_status(task_node.task_id, "failed", str(err))
+                            planner.update_task_status(comp_id, task_node.task_id, "failed", str(err))
                             
                     # Start the agent task asynchronously in the background loop
-                    global_runtime.run_agent_task(next_task.agent, next_task.task_id, execute_and_update, next_task, active_plan)
+                    global_runtime.run_agent_task(next_task.agent, next_task.task_id, execute_and_update, next_task, active_plan, global_planner, companion_id)
                     plan_context += f"\n[CURRENT PLAN STEP: Deployed {next_task.agent} agent to run: '{next_task.title}']"
                     logger.info(f"Automatically started next task '{next_task.task_id}' under '{next_task.agent}' agent.")
                 else:
-                    active_plan.mark_task_status(next_task.task_id, "completed", "Fallback execution complete.")
+                    global_planner.update_task_status(companion_id, next_task.task_id, "completed", "Fallback execution complete.")
                     plan_context += f"\n[CURRENT PLAN STEP: Fallback completed: '{next_task.title}']"
 
             # Compile plan status for prompt

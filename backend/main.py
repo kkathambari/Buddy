@@ -27,6 +27,25 @@ from backend.limiter import limiter
 @app.on_event("startup")
 async def validate_configuration_on_startup():
     validate_production_configuration()
+    
+    # 14.9 Register planner observability
+    from brain.planner import global_planner
+    import json
+    def _on_plan_updated(companion_id, plan):
+        try:
+            loop = asyncio.get_running_loop()
+            asyncio.run_coroutine_threadsafe(
+                manager.broadcast(json.dumps({
+                    "type": "plan_update",
+                    "companion_id": companion_id,
+                    "plan": plan.to_dict()
+                })),
+                loop
+            )
+        except RuntimeError:
+            pass
+            
+    global_planner.on_plan_update = _on_plan_updated
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)

@@ -28,9 +28,16 @@ def init_db():
         name TEXT,
         role TEXT,
         language TEXT,
-        goals TEXT
+        goals TEXT,
+        autonomy_level TEXT DEFAULT 'guided'
     )
     """)
+    
+    # Try adding autonomy_level if migrating
+    try:
+        cursor.execute("ALTER TABLE profile ADD COLUMN autonomy_level TEXT DEFAULT 'guided'")
+    except sqlite3.OperationalError:
+        pass
     
     # 2. Relationship table
     cursor.execute("""
@@ -109,6 +116,31 @@ def init_db():
         progress REAL DEFAULT 0.0,
         created_at REAL,
         updated_at REAL
+    )
+    """)
+    
+    # 8. Plans table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS plans (
+        companion_id TEXT PRIMARY KEY,
+        goal TEXT,
+        tasks TEXT,
+        completed INTEGER DEFAULT 0,
+        updated_at REAL
+    )
+    """)
+    
+    # 9. Scheduled tasks table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS scheduled_tasks (
+        id TEXT PRIMARY KEY,
+        companion_id TEXT,
+        name TEXT,
+        prompt TEXT,
+        run_at REAL,
+        recurring INTEGER DEFAULT 0,
+        interval_sec REAL,
+        status TEXT DEFAULT 'pending'
     )
     """)
 
@@ -410,4 +442,110 @@ class SqliteGoalRepository:
             return deleted
         except Exception as e:
             logger.error(f"SqliteGoalRepository delete_goal failed: {e}", exc_info=True)
+            return False
+
+class SqlitePlannerRepository:
+    def get_plan(self, companion_id: str) -> Optional[Dict[str, Any]]:
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM plans WHERE companion_id = ?", (companion_id,))
+            row = cursor.fetchone()
+            conn.close()
+            if row:
+                return {
+                    "goal": row["goal"],
+                    "tasks": json.loads(row["tasks"]),
+                    "completed": bool(row["completed"])
+                }
+            return None
+        except Exception as e:
+            logger.error(f"SqlitePlannerRepository get_plan failed: {e}", exc_info=True)
+            return None
+
+    def save_plan(self, companion_id: str, plan_data: Dict[str, Any]) -> bool:
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            goal = plan_data.get("goal", "")
+            tasks_json = json.dumps(plan_data.get("tasks", []))
+            completed = 1 if plan_data.get("completed", False) else 0
+            now = time.time()
+            
+            cursor.execute("""
+            INSERT OR REPLACE INTO plans (companion_id, goal, tasks, completed, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            """, (companion_id, goal, tasks_json, completed, now))
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            logger.error(f"SqlitePlannerRepository save_plan failed: {e}", exc_info=True)
+            return False
+
+    def delete_plan(self, companion_id: str) -> bool:
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM plans WHERE companion_id = ?", (companion_id,))
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            logger.error(f"SqlitePlannerRepository delete_plan failed: {e}", exc_info=True)
+            return False
+
+class SqliteScheduleRepository:
+    def get_pending_tasks(self) -> List[Dict[str, Any]]:
+        try:
+            now = time.time()
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM scheduled_tasks WHERE status = 'pending' AND run_at <= ?", (now,))
+            rows = cursor.fetchall()
+            conn.close()
+            return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"SqliteScheduleRepository get_pending_tasks failed: {e}", exc_info=True)
+            return []
+
+    def create_task(self, task_data: Dict[str, Any]) -> str:
+        try:
+            import uuid
+            task_id = str(uuid.uuid4())
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+            INSERT INTO scheduled_tasks (id, companion_id, name, prompt, run_at, recurring, interval_sec, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                task_id, 
+                task_data["companion_id"], 
+                task_data["name"], 
+                task_data["prompt"], 
+                task_data["run_at"], 
+                1 if task_data.get("recurring") else 0, 
+                task_data.get("interval_sec", 0), 
+                "pending"
+            ))
+            conn.commit()
+            conn.close()
+            return task_id
+        except Exception as e:
+            logger.error(f"SqliteScheduleRepository create_task failed: {e}", exc_info=True)
+            return ""
+
+    def mark_completed(self, task_id: str, reschedule_at: Optional[float] = None) -> bool:
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            if reschedule_at is not None:
+                cursor.execute("UPDATE scheduled_tasks SET run_at = ?, status = 'pending' WHERE id = ?", (reschedule_at, task_id))
+            else:
+                cursor.execute("UPDATE scheduled_tasks SET status = 'completed' WHERE id = ?", (task_id,))
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            logger.error(f"SqliteScheduleRepository mark_completed failed: {e}", exc_info=True)
             return False

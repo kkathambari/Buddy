@@ -111,14 +111,41 @@ class PermissionManager:
         self.save_permissions()
 
     def request_action_confirmation(self, tool_name: str, params: Dict[str, Any], companion_id: str = None) -> str:
-        """Create a short-lived, one-time confirmation challenge for a tool call."""
+        """Create a short-lived, one-time confirmation challenge for a tool call. Auto-approves based on autonomy setting."""
         token = secrets.token_urlsafe(24)
         fingerprint = hashlib.sha256(
             json.dumps(params, sort_keys=True, default=str).encode("utf-8")
         ).hexdigest()
+        
+        # 14.8 Autonomy logic
+        is_safe_tool = tool_name.lower() in ["read_file", "plan"]
+        autonomy_level = "guided"
+        if companion_id:
+            try:
+                from backend.repositories.factory import get_companion_repository
+                repo = get_companion_repository()
+                soul = repo.get(companion_id)
+                if soul:
+                    # In a real app we'd fetch profile here. Right now get() merges them but let's query raw to be safe, 
+                    # or assume default guided. Let's just query db.
+                    from backend.repositories.sqlite import get_connection
+                    conn = get_connection()
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT autonomy_level FROM profile WHERE id = ?", (companion_id,))
+                    row = cursor.fetchone()
+                    conn.close()
+                    if row and row["autonomy_level"]:
+                        autonomy_level = row["autonomy_level"]
+            except Exception:
+                pass
+
+        auto_approve = False
+        if autonomy_level == "guided" and is_safe_tool:
+            auto_approve = True
+            
         self._pending_confirmations[token] = {
             "tool_name": tool_name.lower(), "fingerprint": fingerprint,
-            "expires_at": time.time() + 300, "approved": False,
+            "expires_at": time.time() + 300, "approved": auto_approve,
             "companion_id": companion_id
         }
         return token

@@ -13,7 +13,7 @@ class TaskNode:
         self.title = title
         self.agent = agent # target agent/handler, e.g. 'education', 'coding', 'automation'
         self.dependencies = dependencies or []
-        self.status = "pending" # pending, running, completed, failed
+        self.status = "pending" # pending, running, completed, failed, waiting_for_permission, cancelled
         self.result = None
         self.verification = verification
         self.description = description
@@ -101,6 +101,25 @@ class CognitivePlanner:
     
     def __init__(self):
         self.active_plans: Dict[str, TaskPlan] = {}
+        self.on_plan_update = None
+        # We don't load all plans into memory at startup to save resources; we fetch on demand.
+
+    def _save_plan(self, companion_id: str, plan: TaskPlan) -> None:
+        """Persists the plan to SQLite for recovery."""
+        from backend.repositories.factory import get_planner_repository
+        repo = get_planner_repository()
+        repo.save_plan(companion_id, plan.to_dict())
+
+    def _load_plan(self, companion_id: str) -> Optional[TaskPlan]:
+        """Loads the active plan from SQLite if available."""
+        from backend.repositories.factory import get_planner_repository
+        repo = get_planner_repository()
+        data = repo.get_plan(companion_id)
+        if data:
+            plan = TaskPlan.from_dict(data)
+            self.active_plans[companion_id] = plan
+            return plan
+        return None
 
     def create_plan(self, companion_id: str, goal: str) -> TaskPlan:
         """Decomposes a goal into a TaskPlan graph, using LLM analysis or a structured rules fallback."""
@@ -159,6 +178,7 @@ Example response:
 
         plan = TaskPlan(goal, tasks)
         self.active_plans[companion_id] = plan
+        self._save_plan(companion_id, plan)
         return plan
 
     def _get_fallback_tasks(self, goal: str) -> List[TaskNode]:
@@ -188,12 +208,40 @@ Example response:
             ]
 
     def get_plan(self, companion_id: str) -> Optional[TaskPlan]:
-        return self.active_plans.get(companion_id)
+        if companion_id in self.active_plans:
+            return self.active_plans[companion_id]
+        return self._load_plan(companion_id)
+
+    def update_task_status(self, companion_id: str, task_id: str, status: str, result: Any = None) -> None:
+        plan = self.get_plan(companion_id)
+        if plan:
+            plan.mark_task_status(task_id, status, result)
+            
+            # 14.7 Failure Handling: if a task fails, downstream dependencies should be cancelled or blocked
+            if status == "failed":
+                changed = True
+                while changed:
+                    changed = False
+                    failed_or_cancelled = {tid for tid, t in plan.tasks.items() if t.status in ["failed", "cancelled"]}
+                    for t in plan.tasks.values():
+                        if t.status == "pending" and any(dep in failed_or_cancelled for dep in t.dependencies):
+                            plan.mark_task_status(t.task_id, "cancelled", f"Upstream dependency failed/cancelled.")
+                            changed = True
+            
+            self._save_plan(companion_id, plan)
+            if self.on_plan_update:
+                try:
+                    self.on_plan_update(companion_id, plan)
+                except Exception as e:
+                    logger.error(f"Error in on_plan_update callback: {e}")
 
     def clear_plan(self, companion_id: str) -> None:
         if companion_id in self.active_plans:
             del self.active_plans[companion_id]
-            logger.info(f"Cleared plan for companion {companion_id}")
+            logger.info(f"Cleared plan for companion {companion_id} from memory")
+        from backend.repositories.factory import get_planner_repository
+        repo = get_planner_repository()
+        repo.delete_plan(companion_id)
 
 # Global singleton planner
 global_planner = CognitivePlanner()
