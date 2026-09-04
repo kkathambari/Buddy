@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 export default function Memory({ user, companionId, API_BASE_URL, onClose }) {
   const [memories, setMemories] = useState([]);
@@ -13,11 +13,7 @@ export default function Memory({ user, companionId, API_BASE_URL, onClose }) {
 
   const [confirmClear, setConfirmClear] = useState(false);
 
-  useEffect(() => {
-    loadMemories();
-  }, []);
-
-  const loadMemories = async () => {
+  const loadMemories = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -37,7 +33,12 @@ export default function Memory({ user, companionId, API_BASE_URL, onClose }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user, companionId, API_BASE_URL]);
+
+  useEffect(() => {
+    // eslint-disable-next-line
+    loadMemories();
+  }, [loadMemories]);
 
   const handleAdd = async (e) => {
     e.preventDefault();

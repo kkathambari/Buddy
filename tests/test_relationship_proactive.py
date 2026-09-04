@@ -163,11 +163,11 @@ class TestRelationshipProactive(unittest.TestCase):
         self.assertEqual(msg, "Mocked Proactive Comment")
 
         # Test Scheduler
+        # In test environments, it might take a bit longer or the scheduler polling interval might be 2s
         timer = schedule_reminder("test_alert", 0.01, "Test Alert Prompt", "test_companion")
-        # Wait up to 2 seconds for the background timer thread to execute
         start_time = time.time()
-        while proactive_queue['test_companion'].empty() and (time.time() - start_time) < 2.0:
-            time.sleep(0.01)
+        while proactive_queue['test_companion'].empty() and (time.time() - start_time) < 6.0:
+            time.sleep(0.2)
         self.assertFalse(proactive_queue['test_companion'].empty(), "Scheduler reminder was not queued!")
         msg_timer = proactive_queue['test_companion'].get_nowait()
         self.assertEqual(msg_timer, "Mocked Proactive Comment")

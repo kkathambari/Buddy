@@ -1,0 +1,21 @@
+{
+    # Global options
+}
+
+# In production this would be the real domain, e.g., buddy.example.com
+:80 {
+    # WebSocket endpoint goes to FastAPI
+    handle /ws* {
+        reverse_proxy buddy-api:8000
+    }
+
+    # API endpoints go to FastAPI
+    handle /api/* {
+        reverse_proxy buddy-api:8000
+    }
+
+    # Everything else goes to the Frontend
+    handle /* {
+        reverse_proxy buddy-frontend:80
+    }
+}

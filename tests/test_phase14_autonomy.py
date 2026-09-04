@@ -16,11 +16,14 @@ def setup_test_env():
     cursor.execute("DELETE FROM relationship")
     
     # Insert test profiles
+    cursor.execute("INSERT INTO profile (id, autonomy_level) VALUES (?, ?)", ("comp_autonomous", "autonomous"))
+    cursor.execute("INSERT INTO relationship (companion_id) VALUES (?)", ("comp_autonomous",))
+    
     cursor.execute("INSERT INTO profile (id, autonomy_level) VALUES (?, ?)", ("comp_guided", "guided"))
     cursor.execute("INSERT INTO relationship (companion_id) VALUES (?)", ("comp_guided",))
-    
-    cursor.execute("INSERT INTO profile (id, autonomy_level) VALUES (?, ?)", ("comp_approval", "approval_required"))
-    cursor.execute("INSERT INTO relationship (companion_id) VALUES (?)", ("comp_approval",))
+
+    cursor.execute("INSERT INTO profile (id, autonomy_level) VALUES (?, ?)", ("comp_observe", "observe"))
+    cursor.execute("INSERT INTO relationship (companion_id) VALUES (?)", ("comp_observe",))
     conn.commit()
     conn.close()
     
@@ -37,20 +40,24 @@ def setup_test_env():
         conn.close()
 
 def test_permission_manager_autonomy(setup_test_env):
-    # Test safe tool (read_file) for guided profile
-    token1 = global_permission_manager.request_action_confirmation("read_file", {"target": "foo.txt"}, "comp_guided")
+    # Test safe tool (read_file) for autonomous profile
+    token1 = global_permission_manager.request_action_confirmation("read_file", {"target": "foo.txt"}, "comp_autonomous")
     conf1 = global_permission_manager._pending_confirmations[token1]
-    assert conf1["approved"] == True, "Guided profile should auto-approve safe tools."
+    assert conf1["approved"] == True, "Autonomous profile should auto-approve safe tools."
 
-    # Test unsafe tool (terminal) for guided profile
-    token2 = global_permission_manager.request_action_confirmation("terminal", {"target": "rm -rf"}, "comp_guided")
+    # Test unsafe tool (terminal) for autonomous profile
+    token2 = global_permission_manager.request_action_confirmation("terminal", {"target": "rm -rf"}, "comp_autonomous")
     conf2 = global_permission_manager._pending_confirmations[token2]
-    assert conf2["approved"] == False, "Guided profile should NOT auto-approve unsafe tools."
+    assert conf2["approved"] == False, "Autonomous profile should NOT auto-approve unsafe tools."
 
-    # Test safe tool (read_file) for approval_required profile
-    token3 = global_permission_manager.request_action_confirmation("read_file", {"target": "foo.txt"}, "comp_approval")
+    # Test safe tool (read_file) for guided profile
+    token3 = global_permission_manager.request_action_confirmation("read_file", {"target": "foo.txt"}, "comp_guided")
     conf3 = global_permission_manager._pending_confirmations[token3]
-    assert conf3["approved"] == False, "Approval Required profile should NOT auto-approve any tools."
+    assert conf3["approved"] == False, "Guided profile should NOT auto-approve safe tools."
+
+    # Test unsafe tool (terminal) for observe profile
+    token4 = global_permission_manager.request_action_confirmation("terminal", {"target": "rm -rf"}, "comp_observe")
+    assert token4 == "BLOCKED_BY_OBSERVE_MODE", "Observe profile should completely block unsafe tools."
 
 def test_planner_repository_persistence(setup_test_env):
     planner = CognitivePlanner()

@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 
-export default function Settings({ user, companionId, API_BASE_URL, profile, onNavigate }) {
+export default function Settings({ profile, onNavigate }) {
   const [activeTab, setActiveTab] = useState('buddy');
   const [saveStatus, setSaveStatus] = useState('');
 

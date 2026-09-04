@@ -122,26 +122,28 @@ class PermissionManager:
         autonomy_level = "guided"
         if companion_id:
             try:
-                from backend.repositories.factory import get_companion_repository
-                repo = get_companion_repository()
-                soul = repo.get(companion_id)
-                if soul:
-                    # In a real app we'd fetch profile here. Right now get() merges them but let's query raw to be safe, 
-                    # or assume default guided. Let's just query db.
-                    from backend.repositories.sqlite import get_connection
-                    conn = get_connection()
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT autonomy_level FROM profile WHERE id = ?", (companion_id,))
-                    row = cursor.fetchone()
-                    conn.close()
-                    if row and row["autonomy_level"]:
-                        autonomy_level = row["autonomy_level"]
+                from backend.repositories.sqlite import get_connection
+                conn = get_connection()
+                cursor = conn.cursor()
+                cursor.execute("SELECT autonomy_level FROM profile WHERE id = ?", (companion_id,))
+                row = cursor.fetchone()
+                conn.close()
+                if row and row["autonomy_level"]:
+                    autonomy_level = row["autonomy_level"]
             except Exception:
                 pass
 
         auto_approve = False
-        if autonomy_level == "guided" and is_safe_tool:
+        
+        # Observe mode: completely block unsafe tools.
+        if autonomy_level == "observe" and not is_safe_tool:
+            return "BLOCKED_BY_OBSERVE_MODE"
+
+        # Autonomous mode: Auto-execute safe tools, prompt for dangerous ones
+        if autonomy_level == "autonomous" and is_safe_tool:
             auto_approve = True
+            
+        # Guided mode: Prompt for all tools (auto_approve remains False)
             
         self._pending_confirmations[token] = {
             "tool_name": tool_name.lower(), "fingerprint": fingerprint,

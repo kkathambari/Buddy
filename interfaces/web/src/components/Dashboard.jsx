@@ -1,8 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 
-export default function Dashboard({ user, companionId, API_BASE_URL, profile, stats, threads, onNavigate, onSelectThread }) {
+export default function Dashboard({ user, companionId, API_BASE_URL, profile, threads, onNavigate, onSelectThread }) {
   const [activity, setActivity] = useState([]);
-  const [memories, setMemories] = useState([]);
   const [goals, setGoals] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -11,14 +10,12 @@ export default function Dashboard({ user, companionId, API_BASE_URL, profile, st
       user.getIdToken().then(async token => {
         try {
           const headers = { Authorization: `Bearer ${token}` };
-          const [actRes, memRes, goalsRes] = await Promise.all([
+          const [actRes, goalsRes] = await Promise.all([
             fetch(`${API_BASE_URL}/api/activity?companion_id=${companionId}`, { headers }),
-            fetch(`${API_BASE_URL}/api/memories?companion_id=${companionId}`, { headers }),
             fetch(`${API_BASE_URL}/api/goals?companion_id=${companionId}`, { headers })
           ]);
           
           if (actRes.ok) setActivity(await actRes.json());
-          if (memRes.ok) setMemories(await memRes.json());
           if (goalsRes.ok) {
             const data = await goalsRes.json();
             setGoals(data.goals || []);
@@ -126,7 +123,7 @@ export default function Dashboard({ user, companionId, API_BASE_URL, profile, st
           <div style={{ color: 'var(--text-secondary)', fontStyle: 'italic', padding: '20px', textAlign: 'center', background: 'rgba(0,0,0,0.2)', borderRadius: '8px' }}>No conversations yet.</div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {threads.slice(0, 5).map((t, i) => (
+            {threads.slice(0, 5).map(t => (
               <div key={t.id} onClick={() => { onSelectThread(t.id); onNavigate('chat'); }} style={{ padding: '12px', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: 'white', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.title}</span>
               </div>

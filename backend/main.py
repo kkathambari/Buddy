@@ -33,19 +33,55 @@ async def validate_configuration_on_startup():
     import json
     def _on_plan_updated(companion_id, plan):
         try:
-            loop = asyncio.get_running_loop()
-            asyncio.run_coroutine_threadsafe(
-                manager.broadcast(json.dumps({
-                    "type": "plan_update",
-                    "companion_id": companion_id,
-                    "plan": plan.to_dict()
-                })),
-                loop
-            )
-        except RuntimeError:
-            pass
+            from backend.messaging import publish_ws_event
+            publish_ws_event(companion_id, json.dumps({
+                "type": "plan_update",
+                "companion_id": companion_id,
+                "plan": plan.to_dict()
+            }))
+        except Exception as e:
+            logger.error(f"Failed to publish plan update: {e}")
             
     global_planner.on_plan_update = _on_plan_updated
+    
+    # 15.4 Subscribe to Redis for worker events
+    import threading
+    def _redis_subscriber():
+        from backend.messaging import get_redis_client
+        client = get_redis_client()
+        if not client:
+            return
+        pubsub = client.pubsub()
+        pubsub.subscribe("ws_events")
+        logger.info("Subscribed to Redis ws_events channel")
+        loop = asyncio.get_event_loop()
+        for message in pubsub.listen():
+            if message["type"] == "message":
+                try:
+                    data = json.loads(message["data"])
+                    comp_id = data.get("companion_id")
+                    msg_text = data.get("message")
+                    
+                    if comp_id and msg_text:
+                        # Try parsing message to see if it's already a JSON event (like plan_update)
+                        try:
+                            json_obj = json.loads(msg_text)
+                            payload_str = msg_text
+                        except Exception:
+                            # It's a raw string (proactive message)
+                            payload_str = json.dumps({
+                                "type": "proactive_message",
+                                "message": msg_text
+                            })
+                            
+                        asyncio.run_coroutine_threadsafe(
+                            manager.send_to_companion(comp_id, payload_str),
+                            loop
+                        )
+                except Exception as e:
+                    logger.error(f"Error processing Redis ws_event: {e}")
+
+    threading.Thread(target=_redis_subscriber, daemon=True).start()
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -106,24 +142,41 @@ app.include_router(companions.router, prefix="/api")
 class ConnectionManager:
     """Manages active WebSockets connections to broadcast events in real-time."""
     def __init__(self):
-        self.active_connections: List[WebSocket] = []
+        self.active_connections = {} # companion_id -> List[WebSocket]
+        self.all_connections = []
 
-    async def connect(self, websocket: WebSocket):
+    async def connect(self, websocket: WebSocket, companion_id: str):
         await websocket.accept()
-        self.active_connections.append(websocket)
-        logger.info(f"New client connected. Active connections: {len(self.active_connections)}")
+        if companion_id not in self.active_connections:
+            self.active_connections[companion_id] = []
+        self.active_connections[companion_id].append(websocket)
+        self.all_connections.append(websocket)
+        logger.info(f"New client connected ({companion_id}). Active: {len(self.all_connections)}")
 
-    def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
-        logger.info(f"Client disconnected. Active connections: {len(self.active_connections)}")
+    def disconnect(self, websocket: WebSocket, companion_id: str = None):
+        if websocket in self.all_connections:
+            self.all_connections.remove(websocket)
+        if companion_id and companion_id in self.active_connections:
+            if websocket in self.active_connections[companion_id]:
+                self.active_connections[companion_id].remove(websocket)
+        logger.info(f"Client disconnected. Active: {len(self.all_connections)}")
 
     async def broadcast(self, message: str):
-        logger.info(f"Broadcasting event: {message}")
-        for connection in self.active_connections:
+        for connection in self.all_connections:
             try:
                 await connection.send_text(message)
             except Exception as e:
                 logger.error(f"Failed to send websocket message: {e}")
+                
+    async def send_to_companion(self, companion_id: str, message: str):
+        if companion_id in self.active_connections:
+            for connection in self.active_connections[companion_id]:
+                try:
+                    await connection.send_text(message)
+                except Exception as e:
+                    logger.error(f"Failed to send to companion {companion_id}: {e}")
+
+manager = ConnectionManager()
 
 manager = ConnectionManager()
 
@@ -149,49 +202,14 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.close(code=1008, reason="Unauthorized companion access.")
             return
             
-        manager.active_connections.append(websocket)
+        await manager.connect(websocket, companion_id)
     except Exception as e:
         logger.error(f"WebSocket auth failed: {e}")
         await websocket.close(code=1008, reason="WebSocket connection or authentication failed.")
         return
 
     try:
-        # Background task to send proactive messages
-        async def send_proactive():
-            from proactive.trigger import proactive_queue
-            while True:
-                try:
-                    if not proactive_queue[companion_id].empty():
-                        msg = proactive_queue[companion_id].get_nowait()
-                        
-                        # Save to db history
-                        from backend.repositories.factory import get_memory_repository
-                        mem_repo = get_memory_repository()
-                        history = mem_repo.get(companion_id) or []
-                        history.append({"sender": companion_id, "message": msg, "timestamp": time.time(), "is_proactive": True})
-                        mem_repo.save(companion_id, history)
-                        
-                        # Trigger local Desktop Notification using plyer
-                        try:
-                            from plyer import notification
-                            notification.notify(
-                                title="Buddy (Proactive)",
-                                message=msg,
-                                app_name="DevBuddy",
-                                timeout=10
-                            )
-                        except Exception as e:
-                            logger.error(f"Desktop notification failed: {e}")
-                        
-                        await websocket.send_json({
-                            "type": "proactive_message",
-                            "message": msg
-                        })
-                except Exception:
-                    pass
-                await asyncio.sleep(2)
-                
-        proactive_task = asyncio.create_task(send_proactive())
+        # Proactive task is now handled by Redis pub/sub in startup
         
         message_timestamps = []
         loop = asyncio.get_event_loop()
@@ -305,29 +323,54 @@ async def websocket_endpoint(websocket: WebSocket):
             else:
                 await websocket.send_text(data)
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
-        if 'proactive_task' in locals():
-            proactive_task.cancel()
+        manager.disconnect(websocket, companion_id if 'companion_id' in locals() else None)
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
-        manager.disconnect(websocket)
-        if 'proactive_task' in locals():
-            proactive_task.cancel()
+        manager.disconnect(websocket, companion_id if 'companion_id' in locals() else None)
 
 @app.get("/health")
 def health_check():
-    """Exposes a detailed health check validating Firebase and AI settings."""
+    """Exposes a detailed health check validating dependencies and settings."""
     cfg = get_config()
     db_configured = bool(cfg.get("firebase_url"))
     auth_configured = bool(cfg.get("firebase_api_key"))
     ai_provider = cfg.get("ai_provider", "ollama")
+    repo_type = cfg.get("repository_type", "sqlite")
+    
+    postgres_status = "unknown"
+    redis_status = "unknown"
+    
+    # Check postgres if active
+    if repo_type == "postgres":
+        try:
+            from backend.db import engine
+            from sqlalchemy import text
+            with engine.connect() as connection:
+                connection.execute(text("SELECT 1"))
+            postgres_status = "connected"
+        except Exception as e:
+            postgres_status = f"error: {e}"
+            
+    # Check redis
+    try:
+        from backend.messaging import get_redis_client
+        client = get_redis_client()
+        if client and client.ping():
+            redis_status = "connected"
+        else:
+            redis_status = "disconnected"
+    except Exception as e:
+        redis_status = f"error: {e}"
     
     return {
-        "status": "healthy",
-        "service": "Forge AI Backend",
+        "status": "healthy" if postgres_status in ["connected", "unknown"] else "unhealthy",
+        "service": "Buddy API",
         "checks": {
             "firebase_database": "configured" if db_configured else "default_mock",
             "firebase_authentication": "configured" if auth_configured else "default_mock",
-            "ai_gateway_provider": ai_provider
+            "ai_gateway_provider": ai_provider,
+            "postgres": postgres_status,
+            "redis": redis_status,
+            "repository": repo_type
         }
     }

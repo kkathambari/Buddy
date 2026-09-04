@@ -21,6 +21,8 @@ function ActionCard({ actionRaw, onConfirm }) {
   else if (type === 'READ_FILE') { icon = '📄'; actionText = `Read file: ${target}`; }
   else if (type === 'WRITE_FILE') { icon = '✍️'; actionText = `Write file: ${target}`; }
   else if (type === 'PLAN') { return null; } // Handled by PlanCard
+  
+  return (
     <div style={{ marginTop: '12px', background: 'rgba(0,0,0,0.4)', borderRadius: '12px', border: '1px solid var(--glass-border)', padding: '16px', overflow: 'hidden' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
         <span style={{ fontSize: '1.2rem' }}>{icon}</span>
@@ -37,7 +39,7 @@ function ActionCard({ actionRaw, onConfirm }) {
   );
 }
 
-function PlanCard({ planDetails, actionRaw, onConfirm }) {
+function PlanCard({ planDetails, onConfirm }) {
   if (!planDetails) return null;
   
   return (
@@ -92,7 +94,6 @@ export default function App() {
   const actionBufferRef = useRef(null); // Buffer for detected action tags
 
   // Memory State
-  const [memories, setMemories] = useState([]);
   const [showMemoryUI, setShowMemoryUI] = useState(false);
 
   useEffect(() => {
@@ -113,6 +114,7 @@ export default function App() {
 
   useEffect(() => {
     if (user) {
+      // eslint-disable-next-line
       setView('loading');
       user.getIdToken().then(async token => {
         try {
@@ -259,6 +261,7 @@ export default function App() {
       });
     }
     return () => { if (wsRef.current) wsRef.current.close(); };
+    // eslint-disable-next-line
   }, [view, user, companionId]);
 
   const handleCreateThread = async () => {
@@ -287,7 +290,9 @@ export default function App() {
     try {
       const token = await user.getIdToken();
       loadThreadHistory(id, token);
-    } catch(e) {}
+    } catch(e) {
+      console.error(e);
+    }
   };
 
   const handleLogin = async (e) => {
@@ -381,6 +386,7 @@ export default function App() {
         return newHist;
       });
     } catch (err) {
+      console.error(err);
       setChatHistory(prev => {
         const newHist = [...prev];
         newHist[index].actionResult = `Action failed: Network error`;
@@ -474,9 +480,6 @@ export default function App() {
 
       {view === 'settings' && (
         <Settings 
-          user={user} 
-          companionId={companionId} 
-          API_BASE_URL={API_BASE_URL} 
           profile={profile} 
           onNavigate={(newView) => {
             if (newView === 'memory') setShowMemoryUI(true);
@@ -599,7 +602,7 @@ export default function App() {
                 )}
                 {/* Plan Card Rendering */}
                 {msg.sender === 'pet' && msg.planDetails && !msg.actionResult && (
-                  <PlanCard planDetails={msg.planDetails} actionRaw={msg.actionRaw} onConfirm={(allowed) => handleActionConfirm(allowed, i)} />
+                  <PlanCard planDetails={msg.planDetails} onConfirm={(allowed) => handleActionConfirm(allowed, i)} />
                 )}
                 
                 {msg.sender === 'pet' && msg.actionResult && (
@@ -617,6 +620,7 @@ export default function App() {
             )}
           </div>
 
+          <form onSubmit={sendChat} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             {imageFile && (
               <div style={{ position: 'relative', width: '48px', height: '48px', borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--primary-accent)' }}>
                 <img src={URL.createObjectURL(imageFile)} alt="preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />

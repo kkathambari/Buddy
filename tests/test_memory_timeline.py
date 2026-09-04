@@ -39,7 +39,8 @@ class TestMemoryTimeline(unittest.TestCase):
         self.assertEqual(memory[0]["user"], "User query 5")
         self.assertEqual(memory[-1]["user"], "User query 24")
         
-        context = get_recent_context(turns=3)
+        context = get_recent_context(max_tokens=3000)
+        self.assertTrue(isinstance(context, str))
         self.assertIn("User: User query 22", context)
         self.assertIn("Buddy: Bot response 24", context)
 

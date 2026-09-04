@@ -18,6 +18,7 @@ from tools.filesystem.tool import FilesystemTool
 
 class TestSecurityMatrix(unittest.TestCase):
     def setUp(self):
+        app.dependency_overrides = {}
         self.client = TestClient(app)
         # Clear terminal env to ensure default fail-closed
         if "BUDDY_ENABLE_TERMINAL_TOOL" in os.environ:
