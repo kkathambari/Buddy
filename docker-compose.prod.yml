@@ -72,8 +72,30 @@ services:
     volumes:
       - redis-data:/data
 
+  prometheus:
+    image: prom/prometheus:latest
+    restart: unless-stopped
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    # Do not expose ports to internet, only accessible inside docker network
+
+  grafana:
+    image: grafana/grafana:latest
+    restart: unless-stopped
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - grafana-data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    # Do not expose ports to internet, only accessible inside docker network
+    depends_on:
+      - prometheus
+
 volumes:
   caddy_data:
   caddy_config:
   postgres-data:
   redis-data:
+  prometheus-data:
+  grafana-data:
